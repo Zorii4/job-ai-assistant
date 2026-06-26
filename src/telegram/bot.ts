@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { Bot } from "grammy";
 import { registerAnalyzeHandler } from "./handlers/analyze.handler.js";
 import { registerStartHandler } from "./handlers/start.handler.js";
+import { accessGuard } from "./guards/accessGuard.js";
 
 loadEnvFile(resolve(process.cwd(), ".env"));
 
@@ -14,6 +15,8 @@ async function main(): Promise<void> {
   }
 
   const bot = new Bot(token);
+
+  bot.use(accessGuard);
 
   registerStartHandler(bot);
   registerAnalyzeHandler(bot);

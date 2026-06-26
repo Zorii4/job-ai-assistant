@@ -112,6 +112,7 @@ export async function analyzeJobApplication(
       llmMock: process.env.LLM_MOCK?.toLowerCase() === "true",
       revisionCyclesUsed,
       finalDecision,
+      input: input.inputMeta,
       warning
     }
   };

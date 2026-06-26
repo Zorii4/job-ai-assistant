@@ -1,10 +1,20 @@
 import type { Bot, Context } from "grammy";
 import { analyzeJobApplication } from "../../app/analyzeJobApplication.js";
 import { saveRunResult } from "../../files/saveRunResult.js";
+import type { JobApplicationInputPartMeta } from "../../types/jobApplication.js";
+import {
+  extractTelegramInputText,
+  TelegramInputTextError,
+  type TelegramInputText
+} from "../files/extractTelegramInputText.js";
+import { validateResumeText, validateVacancyText } from "../guards/inputGuard.js";
+import { hasUnsafeFinalOutput } from "../guards/outputGuard.js";
+import { consumeAnalysisAttempt } from "../guards/rateLimiter.js";
 import {
   clearAnalyzeSession,
   getAnalyzeSession,
   saveResumeText,
+  saveVacancyInputMeta,
   startAnalyzeSession
 } from "../session/memorySession.js";
 
@@ -16,7 +26,7 @@ export function registerAnalyzeHandler(bot: Bot): void {
     const chatId = getChatId(ctx);
 
     startAnalyzeSession(chatId);
-    await ctx.reply("Пришлите текст резюме.");
+    await ctx.reply("Пришли резюме текстом или файлом: .pdf, .md, .txt");
   });
 
   bot.command("cancel", async (ctx) => {
@@ -26,23 +36,52 @@ export function registerAnalyzeHandler(bot: Bot): void {
     await ctx.reply("Текущий сценарий отменен.");
   });
 
-  bot.on("message:text", async (ctx) => {
+  bot.on("message:document", handleAnalyzeInput);
+  bot.on("message:text", handleAnalyzeInput);
+}
+
+async function handleAnalyzeInput(ctx: Context): Promise<void> {
     const chatId = getChatId(ctx);
-    const text = ctx.message.text.trim();
     const session = getAnalyzeSession(chatId);
 
     if (!session) {
-      await ctx.reply("Чтобы начать анализ, отправьте /analyze.");
+      await ctx.reply("Я помогаю только с анализом отклика на вакансию. Используйте /analyze.");
       return;
     }
 
-    if (!text || text.startsWith("/")) {
+    const rawText = ctx.message && "text" in ctx.message ? ctx.message.text?.trim() : undefined;
+
+    if (!rawText && !(ctx.message && "document" in ctx.message)) {
       return;
+    }
+
+    if (rawText?.startsWith("/")) {
+      return;
+    }
+
+    let input: TelegramInputText;
+
+    try {
+      input = await extractTelegramInputText(ctx);
+    } catch (error) {
+      if (error instanceof TelegramInputTextError) {
+        await ctx.reply(error.userMessage);
+        return;
+      }
+
+      throw error;
     }
 
     if (session.step === "waiting_resume") {
-      saveResumeText(chatId, text);
-      await ctx.reply("Теперь пришлите текст вакансии.");
+      const resumeValidation = validateResumeText(input.text);
+
+      if (!resumeValidation.ok) {
+        await ctx.reply(resumeValidation.message ?? "Текст резюме не прошел техническую проверку.");
+        return;
+      }
+
+      saveResumeText(chatId, input.text, toInputMeta(input));
+      await ctx.reply("Резюме принято. Теперь пришли вакансию текстом или файлом: .pdf, .md, .txt");
       return;
     }
 
@@ -55,20 +94,47 @@ export function registerAnalyzeHandler(bot: Bot): void {
         return;
       }
 
-      clearAnalyzeSession(chatId);
-      await ctx.reply("Анализирую отклик. Это может занять немного времени.");
+      const vacancyValidation = validateVacancyText(input.text);
+
+      if (!vacancyValidation.ok) {
+        await ctx.reply(vacancyValidation.message ?? "Текст вакансии не прошел техническую проверку.");
+        return;
+      }
 
       try {
+        const userId = String(ctx.from?.id ?? chatId);
+        const rateLimit = consumeAnalysisAttempt(userId);
+
+        if (!rateLimit.allowed) {
+          await ctx.reply("Лимит бесплатных анализов на выбранный период исчерпан. Попробуйте позже.");
+          return;
+        }
+
+        saveVacancyInputMeta(chatId, toInputMeta(input));
+        clearAnalyzeSession(chatId);
+        await ctx.reply("Данные приняты. Проверяю и запускаю анализ.");
+        await ctx.reply("Анализирую отклик. Это может занять немного времени.");
+
         console.log("[telegram] starting analysis");
         const result = await analyzeJobApplication({
           resumeText,
-          vacancyText: text,
+          vacancyText: input.text,
           source: "telegram",
-          userId: String(ctx.from?.id ?? ctx.chat.id)
+          userId,
+          inputMeta: {
+            resume: session.resumeInputMeta,
+            vacancy: toInputMeta(input)
+          }
         });
 
         console.log("[telegram] saving run result");
-        await saveRunResult(result, resumeText, text);
+        await saveRunResult(result, resumeText, input.text);
+
+        if (hasUnsafeFinalOutput(result.finalMarkdown)) {
+          console.warn(`[telegram] unsafe final output detected for runId=${result.meta.runId}`);
+          await ctx.reply("Результат был сформирован некорректно. Я сохранил run-логи для отладки.");
+          return;
+        }
 
         console.log("[telegram] sending final result");
         for (const message of splitTelegramMessage(result.finalMarkdown)) {
@@ -81,7 +147,16 @@ export function registerAnalyzeHandler(bot: Bot): void {
         await ctx.reply("Не удалось выполнить анализ. Попробуйте еще раз позже или проверьте настройки LLM.");
       }
     }
-  });
+}
+
+function toInputMeta(input: TelegramInputText): JobApplicationInputPartMeta {
+  return {
+    sourceType: input.sourceType,
+    fileName: input.fileName,
+    extension: input.extension,
+    mimeType: input.mimeType,
+    sizeBytes: input.sizeBytes
+  };
 }
 
 export function splitTelegramMessage(text: string): string[] {

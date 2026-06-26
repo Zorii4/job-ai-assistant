@@ -1,9 +1,13 @@
+import type { JobApplicationInputPartMeta } from "../../types/jobApplication.js";
+
 export type AnalyzeSessionStep = "waiting_resume" | "waiting_vacancy";
 
 export type AnalyzeSession = {
   chatId: number;
   step: AnalyzeSessionStep;
   resumeText?: string;
+  resumeInputMeta?: JobApplicationInputPartMeta;
+  vacancyInputMeta?: JobApplicationInputPartMeta;
 };
 
 const sessions = new Map<number, AnalyzeSession>();
@@ -23,12 +27,32 @@ export function getAnalyzeSession(chatId: number): AnalyzeSession | undefined {
   return sessions.get(chatId);
 }
 
-export function saveResumeText(chatId: number, resumeText: string): AnalyzeSession {
+export function saveResumeText(
+  chatId: number,
+  resumeText: string,
+  resumeInputMeta?: JobApplicationInputPartMeta
+): AnalyzeSession {
   const session = getRequiredSession(chatId);
   const updatedSession: AnalyzeSession = {
     ...session,
     step: "waiting_vacancy",
-    resumeText
+    resumeText,
+    resumeInputMeta
+  };
+
+  sessions.set(chatId, updatedSession);
+
+  return updatedSession;
+}
+
+export function saveVacancyInputMeta(
+  chatId: number,
+  vacancyInputMeta: JobApplicationInputPartMeta
+): AnalyzeSession {
+  const session = getRequiredSession(chatId);
+  const updatedSession: AnalyzeSession = {
+    ...session,
+    vacancyInputMeta
   };
 
   sessions.set(chatId, updatedSession);

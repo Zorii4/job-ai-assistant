@@ -5,6 +5,24 @@ export type AnalyzeJobApplicationInput = {
   vacancyText: string;
   source: AnalyzeJobApplicationSource;
   userId?: string;
+  inputMeta?: JobApplicationInputMeta;
+};
+
+export type JobApplicationInputSourceType = "text" | "file";
+
+export type JobApplicationInputExtension = ".pdf" | ".md" | ".txt";
+
+export type JobApplicationInputPartMeta = {
+  sourceType: JobApplicationInputSourceType;
+  fileName?: string;
+  extension?: JobApplicationInputExtension;
+  mimeType?: string;
+  sizeBytes?: number;
+};
+
+export type JobApplicationInputMeta = {
+  resume?: JobApplicationInputPartMeta;
+  vacancy?: JobApplicationInputPartMeta;
 };
 
 export type CriticDecision = "APPROVED" | "NEEDS_REVISION" | "REVISION_REQUIRED" | "REJECTED" | "UNKNOWN";
@@ -38,6 +56,7 @@ export type AnalyzeJobApplicationMeta = {
   llmMock: boolean;
   revisionCyclesUsed: number;
   finalDecision: CriticDecision;
+  input?: JobApplicationInputMeta;
   warning?: string;
 };
 
