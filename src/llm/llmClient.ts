@@ -53,6 +53,7 @@ export async function callLLM(systemPrompt: string, userPrompt: string): Promise
 
 function createMockResponse(systemPrompt: string, userPrompt: string): string {
   const agentName = detectAgentName(systemPrompt);
+  const mode = detectMode(userPrompt);
   const inputLength = userPrompt.length;
 
   return `
@@ -61,6 +62,7 @@ function createMockResponse(systemPrompt: string, userPrompt: string): string {
 This is a local test Markdown response generated with \`LLM_MOCK=true\`.
 
 - Agent: \`${agentName}\`
+- Mode: \`${mode ?? "default"}\`
 - HTTP request: skipped
 - Input length: ${inputLength} characters
 
@@ -94,6 +96,12 @@ function detectAgentName(systemPrompt: string): string {
   }
 
   return "unknownAgent";
+}
+
+function detectMode(userPrompt: string): string | undefined {
+  const modeMatch = userPrompt.match(/Mode:\s*(initial|final)/i);
+
+  return modeMatch?.[1]?.toLowerCase();
 }
 
 function loadEnvFile(path: string): void {

@@ -1,5 +1,6 @@
 import type { Bot, Context } from "grammy";
 import { analyzeJobApplication } from "../../app/analyzeJobApplication.js";
+import { saveRunResult } from "../../files/saveRunResult.js";
 import {
   clearAnalyzeSession,
   getAnalyzeSession,
@@ -22,7 +23,7 @@ export function registerAnalyzeHandler(bot: Bot): void {
     const chatId = getChatId(ctx);
 
     clearAnalyzeSession(chatId);
-    await ctx.reply("Текущий сценарий отменён.");
+    await ctx.reply("Текущий сценарий отменен.");
   });
 
   bot.on("message:text", async (ctx) => {
@@ -58,6 +59,7 @@ export function registerAnalyzeHandler(bot: Bot): void {
       await ctx.reply("Анализирую отклик. Это может занять немного времени.");
 
       try {
+        console.log("[telegram] starting analysis");
         const result = await analyzeJobApplication({
           resumeText,
           vacancyText: text,
@@ -65,12 +67,18 @@ export function registerAnalyzeHandler(bot: Bot): void {
           userId: String(ctx.from?.id ?? ctx.chat.id)
         });
 
+        console.log("[telegram] saving run result");
+        await saveRunResult(result, resumeText, text);
+
+        console.log("[telegram] sending final result");
         for (const message of splitTelegramMessage(result.finalMarkdown)) {
           await ctx.reply(message);
         }
+
+        console.log("[telegram] done");
       } catch (error) {
         console.error("[telegram] analyze failed", error);
-        await ctx.reply("Не удалось выполнить анализ. Попробуйте ещё раз позже или проверьте настройки LLM.");
+        await ctx.reply("Не удалось выполнить анализ. Попробуйте еще раз позже или проверьте настройки LLM.");
       }
     }
   });

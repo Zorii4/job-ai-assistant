@@ -14,6 +14,9 @@ ${documents.resumeText}
 Vacancy:
 ${documents.vacancyText}
 
+orchestrator.initial output:
+${documents.initialOrchestratorOutput}
+
 analystAgent output:
 ${analystOutput}
 

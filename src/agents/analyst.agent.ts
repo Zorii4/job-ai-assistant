@@ -9,6 +9,9 @@ ${documents.resumeText}
 
 Vacancy:
 ${documents.vacancyText}
+
+orchestrator.initial output:
+${documents.initialOrchestratorOutput}
 `.trim();
 
   return callLLM(analystSystemPrompt, userPrompt);
