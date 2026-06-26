@@ -1,8 +1,9 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { AnalyzeJobApplicationResult, JobApplicationAgentName } from "../types/jobApplication.js";
 
 const outputDir = resolve(process.cwd(), "output");
+const runsToKeep = 8;
 
 export async function saveRunResult(
   result: AnalyzeJobApplicationResult,
@@ -30,6 +31,7 @@ export async function saveRunResult(
   }
 
   await Promise.all(writes);
+  await cleanupOldRuns();
 
   return runDir;
 }
@@ -51,4 +53,28 @@ function createRunMeta(result: AnalyzeJobApplicationResult): object {
       finishedAt: step.finishedAt
     }))
   };
+}
+
+async function cleanupOldRuns(): Promise<void> {
+  const runsDir = join(outputDir, "runs");
+  const entries = await readdir(runsDir, { withFileTypes: true }).catch(() => []);
+  const runDirectories = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const path = join(runsDir, entry.name);
+        const stats = await stat(path);
+
+        return {
+          path,
+          modifiedAt: stats.mtimeMs
+        };
+      })
+  );
+
+  const oldRuns = runDirectories
+    .sort((left, right) => right.modifiedAt - left.modifiedAt)
+    .slice(runsToKeep);
+
+  await Promise.all(oldRuns.map((run) => rm(run.path, { recursive: true, force: true })));
 }

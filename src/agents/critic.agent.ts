@@ -5,9 +5,13 @@ import type { JobApplicationDocuments } from "../types/jobApplication.js";
 export async function criticAgent(
   documents: JobApplicationDocuments,
   analystOutput: string,
-  producerOutput: string
+  producerOutput: string,
+  producerVersion: number
 ): Promise<string> {
   const userPrompt = `
+Producer version:
+producer.v${producerVersion}
+
 Resume:
 ${documents.resumeText}
 

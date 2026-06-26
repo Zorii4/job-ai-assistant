@@ -56,6 +56,10 @@ function createMockResponse(systemPrompt: string, userPrompt: string): string {
   const mode = detectMode(userPrompt);
   const inputLength = userPrompt.length;
 
+  if (agentName === "criticAgent") {
+    return createMockCriticResponse(userPrompt, inputLength);
+  }
+
   return `
 # Mock response: ${agentName}
 
@@ -72,6 +76,53 @@ The orchestrator successfully called ${agentName}.
 `.trim();
 }
 
+function createMockCriticResponse(userPrompt: string, inputLength: number): string {
+  const producerVersionMatch = userPrompt.match(/Producer version:\s*producer\.v(\d)|producer\.v(\d)/i);
+  const version = Number(producerVersionMatch?.[1] ?? producerVersionMatch?.[2] ?? 1);
+
+  if (version >= 3) {
+    return `
+DECISION: APPROVED
+
+SUMMARY:
+
+Mock critic approved producer.v${version}. Input length: ${inputLength} characters.
+`.trim();
+  }
+
+  return `
+DECISION: NEEDS_REVISION
+
+ISSUES:
+
+### ISSUE
+
+Category:
+ATS
+
+Severity:
+Major
+
+Problem:
+Mock critic requests another producer iteration.
+
+Reason:
+This mock response exercises the revision flow.
+
+Required action:
+Improve the producer output before final approval.
+
+Reference:
+Mock reference.
+
+---
+
+SUMMARY:
+
+Mock critic requires revision before approval.
+`.trim();
+}
+
 function detectAgentName(systemPrompt: string): string {
   const directMatch = systemPrompt.match(/You are\s+(orchestratorAgent|analystAgent|producerAgent|criticAgent)/i);
 
@@ -79,19 +130,33 @@ function detectAgentName(systemPrompt: string): string {
     return directMatch[1];
   }
 
-  if (systemPrompt.includes("orchestratorAgent")) {
+  if (
+    systemPrompt.includes("orchestratorAgent") ||
+    systemPrompt.includes("Job Application Orchestrator")
+  ) {
     return "orchestratorAgent";
   }
 
-  if (systemPrompt.includes("criticAgent")) {
+  if (
+    systemPrompt.includes("criticAgent") ||
+    systemPrompt.includes("Application Quality Critic")
+  ) {
     return "criticAgent";
   }
 
-  if (systemPrompt.includes("producerAgent")) {
+  if (
+    systemPrompt.includes("producerAgent") ||
+    systemPrompt.includes("Application Producer") ||
+    systemPrompt.includes("Производитель отклика")
+  ) {
     return "producerAgent";
   }
 
-  if (systemPrompt.includes("analystAgent")) {
+  if (
+    systemPrompt.includes("analystAgent") ||
+    systemPrompt.includes("Application Analyst") ||
+    systemPrompt.includes("Стратегический Аналитик")
+  ) {
     return "analystAgent";
   }
 

@@ -65,12 +65,18 @@ export async function analyzeJobApplication(
     );
 
     latestCriticOutput = await runStep(criticStepName, steps, () =>
-      criticAgent(documents, analystOutput, latestProducerOutput)
+      criticAgent(documents, analystOutput, latestProducerOutput, cycle)
     );
 
     finalDecision = parseCriticDecision(latestCriticOutput);
 
     if (finalDecision === "APPROVED") {
+      break;
+    }
+
+    if (finalDecision === "NEEDS_REVISION" && cycle === maxRevisionCycles) {
+      warning =
+        "Critic still requested revisions after the maximum of 3 producer versions. Final orchestrator must use the best latest producer output and explicitly mention unresolved critic remarks.";
       break;
     }
 
@@ -93,7 +99,11 @@ export async function analyzeJobApplication(
       analystOutput,
       latestProducerOutput,
       latestCriticOutput,
-      revisionHistory: formatRevisionHistory(steps)
+      revisionHistory: formatRevisionHistory(steps),
+      finalDecision,
+      producerVersionsUsed: countProducerVersions(steps),
+      maxProducerVersions: maxRevisionCycles,
+      unresolvedCriticRemarks: finalDecision !== "APPROVED" ? latestCriticOutput : undefined
     })
   );
   const finishedAt = new Date().toISOString();
@@ -149,7 +159,7 @@ function shouldRevise(decision: CriticDecision, cycle: number): boolean {
     return false;
   }
 
-  return decision === "NEEDS_REVISION" || decision === "REVISION_REQUIRED" || decision === "UNKNOWN";
+  return decision === "NEEDS_REVISION" || decision === "UNKNOWN";
 }
 
 function formatRevisionHistory(steps: JobApplicationStep[]): string {
@@ -157,4 +167,8 @@ function formatRevisionHistory(steps: JobApplicationStep[]): string {
     .filter((step) => step.agentName.startsWith("producer.") || step.agentName.startsWith("critic."))
     .map((step) => `## ${step.agentName}\n\n${step.output}`)
     .join("\n\n");
+}
+
+function countProducerVersions(steps: JobApplicationStep[]): number {
+  return steps.filter((step) => step.agentName.startsWith("producer.")).length;
 }

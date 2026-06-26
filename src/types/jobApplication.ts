@@ -25,7 +25,7 @@ export type JobApplicationInputMeta = {
   vacancy?: JobApplicationInputPartMeta;
 };
 
-export type CriticDecision = "APPROVED" | "NEEDS_REVISION" | "REVISION_REQUIRED" | "REJECTED" | "UNKNOWN";
+export type CriticDecision = "APPROVED" | "NEEDS_REVISION" | "UNKNOWN";
 
 export type JobApplicationAgentName =
   | "orchestrator.initial"

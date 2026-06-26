@@ -1,5 +1,6 @@
 import { callLLM } from "../llm/llmClient.js";
 import { orchestratorSystemPrompt } from "../prompts/orchestrator.prompt.js";
+import type { CriticDecision } from "../types/jobApplication.js";
 
 type InitialOrchestratorInput = {
   mode: "initial";
@@ -16,6 +17,10 @@ type FinalOrchestratorInput = {
   latestProducerOutput: string;
   latestCriticOutput: string;
   revisionHistory: string;
+  finalDecision: CriticDecision;
+  producerVersionsUsed: number;
+  maxProducerVersions: number;
+  unresolvedCriticRemarks?: string;
 };
 
 export type OrchestratorAgentInput = InitialOrchestratorInput | FinalOrchestratorInput;
@@ -62,5 +67,20 @@ ${input.latestCriticOutput}
 
 Revision history:
 ${input.revisionHistory}
+
+Process status:
+- finalDecision: ${input.finalDecision}
+- producerVersionsUsed: ${input.producerVersionsUsed}
+- maxProducerVersions: ${input.maxProducerVersions}
+
+Finalization rule:
+${
+  input.finalDecision === "APPROVED"
+    ? "Critic approved the latest producer output. Create the final user-facing report from the approved materials."
+    : "Critic did not approve the latest producer output within the limit of 3 producer versions. Create the best possible final user-facing report from the latest producer output, and explicitly state that some critic remarks remain unresolved. Do not expose raw DECISION markers."
+}
+
+Unresolved critic remarks:
+${input.unresolvedCriticRemarks ?? "No unresolved critic remarks."}
 `.trim();
 }
