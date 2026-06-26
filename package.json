@@ -1,0 +1,23 @@
+{
+  "name": "job-ai-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "analyze": "tsx src/cli/analyzeFromDataFolder.ts",
+    "bot": "tsx src/telegram/bot.ts",
+    "build": "tsc",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "grammy": "^1.44.0",
+    "openai": "^6.45.0",
+    "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.12",
+    "@types/pdf-parse": "^1.1.4",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4"
+  }
+}
