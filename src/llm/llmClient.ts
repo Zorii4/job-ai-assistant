@@ -11,7 +11,16 @@ const model = process.env.LLM_MODEL;
 const openAICompatibleBaseUrl = process.env.LLM_BASE_URL;
 const isMockMode = process.env.LLM_MOCK?.toLowerCase() === "true";
 
-export async function callLLM(systemPrompt: string, userPrompt: string): Promise<string> {
+export type CallLLMOptions = {
+  maxOutputTokens?: number;
+  timeoutMs?: number;
+};
+
+export async function callLLM(
+  systemPrompt: string,
+  userPrompt: string,
+  options: CallLLMOptions = {}
+): Promise<string> {
   if (isMockMode) {
     return createMockResponse(systemPrompt, userPrompt);
   }
@@ -32,23 +41,45 @@ export async function callLLM(systemPrompt: string, userPrompt: string): Promise
     baseURL: openAICompatibleBaseUrl,
     apiKey
   });
+  const abortController = new AbortController();
+  const timeout = options.timeoutMs
+    ? setTimeout(() => abortController.abort(), options.timeoutMs)
+    : undefined;
 
-  const response = await client.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    temperature: 0.2
-  });
+  try {
+    const response = await client.chat.completions.create(
+      {
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        temperature: 0.2,
+        max_tokens: options.maxOutputTokens
+      },
+      {
+        signal: abortController.signal
+      }
+    );
 
-  const content = response.choices[0]?.message.content?.trim();
+    const content = response.choices[0]?.message.content?.trim();
 
-  if (!content) {
-    throw new Error("LLM returned an empty response.");
+    if (!content) {
+      throw new Error("LLM returned an empty response.");
+    }
+
+    return content;
+  } catch (error) {
+    if (abortController.signal.aborted) {
+      throw new Error(`LLM step timed out after ${options.timeoutMs}ms.`);
+    }
+
+    throw error;
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
-
-  return content;
 }
 
 function createMockResponse(systemPrompt: string, userPrompt: string): string {

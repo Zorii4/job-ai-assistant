@@ -1,6 +1,6 @@
 import { callLLM } from "../llm/llmClient.js";
 import { orchestratorSystemPrompt } from "../prompts/orchestrator.prompt.js";
-import type { CriticDecision } from "../types/jobApplication.js";
+import type { AgentExecutionOptions, AgentExecutionResult, CriticDecision } from "../types/jobApplication.js";
 
 type InitialOrchestratorInput = {
   mode: "initial";
@@ -25,10 +25,21 @@ type FinalOrchestratorInput = {
 
 export type OrchestratorAgentInput = InitialOrchestratorInput | FinalOrchestratorInput;
 
-export async function orchestratorAgent(input: OrchestratorAgentInput): Promise<string> {
+export async function orchestratorAgent(
+  input: OrchestratorAgentInput,
+  options: AgentExecutionOptions
+): Promise<AgentExecutionResult> {
   const userPrompt = input.mode === "initial" ? createInitialPrompt(input) : createFinalPrompt(input);
+  const output = await callLLM(orchestratorSystemPrompt, userPrompt, {
+    maxOutputTokens: options.maxOutputTokens,
+    timeoutMs: options.timeoutMs
+  });
 
-  return callLLM(orchestratorSystemPrompt, userPrompt);
+  return {
+    output,
+    inputChars: orchestratorSystemPrompt.length + userPrompt.length,
+    outputChars: output.length
+  };
 }
 
 function createInitialPrompt(input: InitialOrchestratorInput): string {

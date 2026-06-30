@@ -1,7 +1,9 @@
-import type { Bot, Context } from "grammy";
+import { InputFile, type Bot, type Context } from "grammy";
+import { join } from "node:path";
 import { analyzeJobApplication } from "../../app/analyzeJobApplication.js";
 import { saveRunResult } from "../../files/saveRunResult.js";
-import type { JobApplicationInputPartMeta } from "../../types/jobApplication.js";
+import type { AnalyzeJobApplicationProgressStage, JobApplicationInputPartMeta } from "../../types/jobApplication.js";
+import { formatFinalMarkdownForTelegram } from "../formatters/formatFinalMarkdownForTelegram.js";
 import {
   extractTelegramInputText,
   TelegramInputTextError,
@@ -17,9 +19,6 @@ import {
   saveVacancyInputMeta,
   startAnalyzeSession
 } from "../session/memorySession.js";
-
-const telegramMessageLimit = 4096;
-const safeTelegramMessageLimit = 3800;
 
 export function registerAnalyzeHandler(bot: Bot): void {
   bot.command("analyze", async (ctx) => {
@@ -81,7 +80,7 @@ async function handleAnalyzeInput(ctx: Context): Promise<void> {
       }
 
       saveResumeText(chatId, input.text, toInputMeta(input));
-      await ctx.reply("Резюме принято. Теперь пришли вакансию текстом или файлом: .pdf, .md, .txt");
+      await ctx.reply("✅ Резюме принято. Теперь пришли вакансию текстом или файлом: .pdf, .md, .txt");
       return;
     }
 
@@ -112,10 +111,11 @@ async function handleAnalyzeInput(ctx: Context): Promise<void> {
 
         saveVacancyInputMeta(chatId, toInputMeta(input));
         clearAnalyzeSession(chatId);
-        await ctx.reply("Данные приняты. Проверяю и запускаю анализ.");
+        await ctx.reply("✅ Данные приняты. Проверяю и запускаю анализ.");
         await ctx.reply("Анализирую отклик. Это может занять немного времени.");
 
         console.log("[telegram] starting analysis");
+        const sentProgressStages = new Set<AnalyzeJobApplicationProgressStage>();
         const result = await analyzeJobApplication({
           resumeText,
           vacancyText: input.text,
@@ -124,11 +124,19 @@ async function handleAnalyzeInput(ctx: Context): Promise<void> {
           inputMeta: {
             resume: session.resumeInputMeta,
             vacancy: toInputMeta(input)
+          },
+          onProgress: async (event) => {
+            if (sentProgressStages.has(event.stage)) {
+              return;
+            }
+
+            sentProgressStages.add(event.stage);
+            await ctx.reply(progressMessageByStage(event.stage));
           }
         });
 
         console.log("[telegram] saving run result");
-        await saveRunResult(result, resumeText, input.text);
+        const runDir = await saveRunResult(result, resumeText, input.text);
 
         if (hasUnsafeFinalOutput(result.finalMarkdown)) {
           console.warn(`[telegram] unsafe final output detected for runId=${result.meta.runId}`);
@@ -137,16 +145,33 @@ async function handleAnalyzeInput(ctx: Context): Promise<void> {
         }
 
         console.log("[telegram] sending final result");
-        for (const message of splitTelegramMessage(result.finalMarkdown)) {
-          await ctx.reply(message);
-        }
+        await ctx.reply(formatFinalMarkdownForTelegram(result.finalMarkdown));
+        await ctx.replyWithDocument(new InputFile(join(runDir, "final.md")), {
+          caption: "Полный отчёт в Markdown-файле."
+        });
 
         console.log("[telegram] done");
       } catch (error) {
         console.error("[telegram] analyze failed", error);
-        await ctx.reply("Не удалось выполнить анализ. Попробуйте еще раз позже или проверьте настройки LLM.");
+        await ctx.reply("Не удалось выполнить анализ. Попробуйте еще раз позже.");
       }
     }
+}
+
+function progressMessageByStage(stage: AnalyzeJobApplicationProgressStage): string {
+  if (stage === "analyst") {
+    return "🔎 Анализирую соответствие резюме и вакансии...";
+  }
+
+  if (stage === "producer") {
+    return "✍️ Готовлю материалы отклика...";
+  }
+
+  if (stage === "critic") {
+    return "🧪 Проверяю качество результата...";
+  }
+
+  return "📦 Собираю финальный ответ...";
 }
 
 function toInputMeta(input: TelegramInputText): JobApplicationInputPartMeta {
@@ -157,49 +182,6 @@ function toInputMeta(input: TelegramInputText): JobApplicationInputPartMeta {
     mimeType: input.mimeType,
     sizeBytes: input.sizeBytes
   };
-}
-
-export function splitTelegramMessage(text: string): string[] {
-  if (text.length <= telegramMessageLimit) {
-    return [text];
-  }
-
-  const messages: string[] = [];
-  let remainingText = text;
-
-  while (remainingText.length > safeTelegramMessageLimit) {
-    const splitIndex = findSplitIndex(remainingText, safeTelegramMessageLimit);
-    messages.push(remainingText.slice(0, splitIndex).trimEnd());
-    remainingText = remainingText.slice(splitIndex).trimStart();
-  }
-
-  if (remainingText) {
-    messages.push(remainingText);
-  }
-
-  return messages;
-}
-
-function findSplitIndex(text: string, maxLength: number): number {
-  const paragraphIndex = text.lastIndexOf("\n\n", maxLength);
-
-  if (paragraphIndex > 0) {
-    return paragraphIndex;
-  }
-
-  const lineIndex = text.lastIndexOf("\n", maxLength);
-
-  if (lineIndex > 0) {
-    return lineIndex;
-  }
-
-  const spaceIndex = text.lastIndexOf(" ", maxLength);
-
-  if (spaceIndex > 0) {
-    return spaceIndex;
-  }
-
-  return maxLength;
 }
 
 function getChatId(ctx: Context): number {

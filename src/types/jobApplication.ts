@@ -6,6 +6,14 @@ export type AnalyzeJobApplicationInput = {
   source: AnalyzeJobApplicationSource;
   userId?: string;
   inputMeta?: JobApplicationInputMeta;
+  onProgress?: (event: AnalyzeJobApplicationProgressEvent) => Promise<void> | void;
+};
+
+export type AnalyzeJobApplicationProgressStage = "analyst" | "producer" | "critic" | "final";
+
+export type AnalyzeJobApplicationProgressEvent = {
+  stage: AnalyzeJobApplicationProgressStage;
+  stepName: JobApplicationAgentName;
 };
 
 export type JobApplicationInputSourceType = "text" | "file";
@@ -43,6 +51,9 @@ export type JobApplicationStep = {
   output: string;
   startedAt: string;
   finishedAt: string;
+  durationMs: number;
+  inputChars: number;
+  outputChars: number;
 };
 
 export type AnalyzeJobApplicationMeta = {
@@ -57,7 +68,14 @@ export type AnalyzeJobApplicationMeta = {
   revisionCyclesUsed: number;
   finalDecision: CriticDecision;
   input?: JobApplicationInputMeta;
+  analysisMode?: "fast" | "deep";
+  maxRevisionCycles?: number;
   warning?: string;
+  error?: {
+    message: string;
+    stepName?: JobApplicationAgentName;
+    occurredAt: string;
+  };
 };
 
 export type AnalyzeJobApplicationResult = {
@@ -70,4 +88,15 @@ export type JobApplicationDocuments = {
   resumeText: string;
   vacancyText: string;
   initialOrchestratorOutput: string;
+};
+
+export type AgentExecutionResult = {
+  output: string;
+  inputChars: number;
+  outputChars: number;
+};
+
+export type AgentExecutionOptions = {
+  maxOutputTokens: number;
+  timeoutMs: number;
 };

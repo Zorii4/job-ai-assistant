@@ -1,13 +1,14 @@
 import { callLLM } from "../llm/llmClient.js";
 import { criticSystemPrompt } from "../prompts/critic.prompt.js";
-import type { JobApplicationDocuments } from "../types/jobApplication.js";
+import type { AgentExecutionOptions, AgentExecutionResult, JobApplicationDocuments } from "../types/jobApplication.js";
 
 export async function criticAgent(
   documents: JobApplicationDocuments,
   analystOutput: string,
   producerOutput: string,
-  producerVersion: number
-): Promise<string> {
+  producerVersion: number,
+  options: AgentExecutionOptions
+): Promise<AgentExecutionResult> {
   const userPrompt = `
 Producer version:
 producer.v${producerVersion}
@@ -27,6 +28,14 @@ ${analystOutput}
 producerAgent output:
 ${producerOutput}
 `.trim();
+  const output = await callLLM(criticSystemPrompt, userPrompt, {
+    maxOutputTokens: options.maxOutputTokens,
+    timeoutMs: options.timeoutMs
+  });
 
-  return callLLM(criticSystemPrompt, userPrompt);
+  return {
+    output,
+    inputChars: criticSystemPrompt.length + userPrompt.length,
+    outputChars: output.length
+  };
 }
