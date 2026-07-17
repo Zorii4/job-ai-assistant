@@ -69,7 +69,6 @@ export type AnalyzeJobApplicationMeta = {
   input?: JobApplicationInputMeta;
   analysisMode?: "fast" | "deep";
   maxRevisionCycles?: number;
-  warning?: string;
   error?: {
     message: string;
     stepName?: JobApplicationAgentName;

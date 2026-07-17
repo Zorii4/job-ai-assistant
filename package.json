@@ -7,6 +7,8 @@
     "analyze": "tsx src/cli/analyzeFromDataFolder.ts",
     "bot": "tsx src/telegram/bot.ts",
     "build": "tsc",
+    "evaluate": "tsx src/cli/runControlCases.ts",
+    "test": "node --import tsx --test test/**/*.test.ts",
     "start": "node dist/main.js"
   },
   "dependencies": {

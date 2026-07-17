@@ -42,10 +42,8 @@ export async function analyzeJobApplication(
   const deadlineAt = Date.now() + config.totalTimeoutMs;
   let latestProducerOutput = "";
   let latestCriticResult: CriticResult | undefined;
-  const criticHistory: Array<{ producerVersion: number; result: CriticResult }> = [];
   let finalDecision: CriticDecision = "UNKNOWN";
   let revisionCyclesUsed = 0;
-  let warning: string | undefined;
   let currentStepName: JobApplicationAgentName | undefined;
 
   const createMeta = (finishedAt: string): AnalyzeJobApplicationMeta => ({
@@ -61,8 +59,7 @@ export async function analyzeJobApplication(
       finalDecision,
       input: input.inputMeta,
       analysisMode: config.analysisMode,
-      maxRevisionCycles: config.maxRevisionCycles,
-      warning
+      maxRevisionCycles: config.maxRevisionCycles
   });
 
   await initializeRunResult(runId, input.resumeText, input.vacancyText);
@@ -131,18 +128,8 @@ export async function analyzeJobApplication(
       );
 
       finalDecision = latestCriticResult.decision;
-      criticHistory.push({
-        producerVersion: cycle,
-        result: latestCriticResult
-      });
 
       if (finalDecision === "APPROVED") {
-        break;
-      }
-
-      if (finalDecision === "NEEDS_REVISION" && cycle === config.maxProducerVersions) {
-        warning =
-          "Critic still requested revisions after the maximum producer versions. Final orchestrator must use the best latest producer output and explicitly mention unresolved critic remarks.";
         break;
       }
 
@@ -154,7 +141,6 @@ export async function analyzeJobApplication(
     if (!latestCriticResult) {
       throw new Error("Critic did not return a result.");
     }
-    const finalCriticResult = latestCriticResult;
 
     const finalStepName = "orchestrator.final";
     currentStepName = finalStepName;
@@ -169,13 +155,7 @@ export async function analyzeJobApplication(
             resumeText: input.resumeText,
             vacancyText: input.vacancyText,
             analystResult,
-            latestProducerOutput,
-            latestCriticResult: finalCriticResult,
-            criticHistory,
-            finalDecision,
-            producerVersionsUsed: countProducerVersions(steps),
-            maxProducerVersions: config.maxProducerVersions,
-            unresolvedCriticRemarks: finalDecision !== "APPROVED" ? finalCriticResult : undefined
+            latestProducerOutput
           },
           createStepOptions(finalStepName, config, deadlineAt)
         ),
@@ -259,10 +239,6 @@ function shouldRevise(decision: CriticDecision, cycle: number, maxProducerVersio
   }
 
   return decision === "NEEDS_REVISION" || decision === "UNKNOWN";
-}
-
-function countProducerVersions(steps: JobApplicationStep[]): number {
-  return steps.filter((step) => step.agentName.startsWith("producer.")).length;
 }
 
 function getAnalysisConfig(): AnalysisConfig {
