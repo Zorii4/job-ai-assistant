@@ -3,7 +3,7 @@ import { orchestratorAgent } from "../agents/orchestrator.agent.js";
 import { analystAgent } from "../agents/analyst.agent.js";
 import { producerAgent } from "../agents/producer.agent.js";
 import { criticAgent } from "../agents/critic.agent.js";
-import { parseCriticDecision } from "./parseCriticDecision.js";
+import type { CriticResult } from "../contracts/critic.contract.js";
 import {
   cleanupOldRuns,
   initializeRunResult,
@@ -41,7 +41,8 @@ export async function analyzeJobApplication(
   const steps: JobApplicationStep[] = [];
   const deadlineAt = Date.now() + config.totalTimeoutMs;
   let latestProducerOutput = "";
-  let latestCriticOutput = "";
+  let latestCriticResult: CriticResult | undefined;
+  const criticHistory: Array<{ producerVersion: number; result: CriticResult }> = [];
   let finalDecision: CriticDecision = "UNKNOWN";
   let revisionCyclesUsed = 0;
   let warning: string | undefined;
@@ -68,33 +69,15 @@ export async function analyzeJobApplication(
   await saveRunMeta(runId, createMeta(createdAt), steps);
 
   try {
-    const initialStepName = "orchestrator.initial";
-    currentStepName = initialStepName;
-    const initialOrchestratorOutput = await runStep(
-      initialStepName,
-      steps,
-      () =>
-        orchestratorAgent(
-          {
-            mode: "initial",
-            resumeText: input.resumeText,
-            vacancyText: input.vacancyText
-          },
-          createStepOptions(initialStepName, config, deadlineAt)
-        ),
-      runId,
-      createMeta
-    );
     const documents = {
       resumeText: input.resumeText,
-      vacancyText: input.vacancyText,
-      initialOrchestratorOutput
+      vacancyText: input.vacancyText
     };
 
     const analystStepName = "analyst";
     currentStepName = analystStepName;
     await notifyProgress(input, "analyst", analystStepName);
-    const analystOutput = await runStep(
+    const analystResult = await runStep(
       analystStepName,
       steps,
       () => analystAgent(documents, createStepOptions(analystStepName, config, deadlineAt)),
@@ -120,10 +103,10 @@ export async function analyzeJobApplication(
         () =>
           producerAgent(
             documents,
-            analystOutput,
+            analystResult,
             createStepOptions(producerStepName, config, deadlineAt),
             latestProducerOutput || undefined,
-            latestCriticOutput || undefined
+            latestCriticResult
           ),
         runId,
         createMeta,
@@ -132,13 +115,13 @@ export async function analyzeJobApplication(
 
       currentStepName = criticStepName;
       await notifyProgress(input, "critic", currentStepName);
-      latestCriticOutput = await runStep(
+      latestCriticResult = await runStep(
         criticStepName,
         steps,
         () =>
           criticAgent(
             documents,
-            analystOutput,
+            analystResult,
             latestProducerOutput,
             cycle,
             createStepOptions(criticStepName, config, deadlineAt)
@@ -147,7 +130,11 @@ export async function analyzeJobApplication(
         createMeta
       );
 
-      finalDecision = parseCriticDecision(latestCriticOutput);
+      finalDecision = latestCriticResult.decision;
+      criticHistory.push({
+        producerVersion: cycle,
+        result: latestCriticResult
+      });
 
       if (finalDecision === "APPROVED") {
         break;
@@ -159,15 +146,15 @@ export async function analyzeJobApplication(
         break;
       }
 
-      if (finalDecision === "UNKNOWN" && cycle === config.maxProducerVersions) {
-        warning = "Critic decision was not recognized after the maximum revision cycles.";
-        break;
-      }
-
       if (!shouldRevise(finalDecision, cycle, config.maxProducerVersions)) {
         break;
       }
     }
+
+    if (!latestCriticResult) {
+      throw new Error("Critic did not return a result.");
+    }
+    const finalCriticResult = latestCriticResult;
 
     const finalStepName = "orchestrator.final";
     currentStepName = finalStepName;
@@ -181,15 +168,14 @@ export async function analyzeJobApplication(
             mode: "final",
             resumeText: input.resumeText,
             vacancyText: input.vacancyText,
-            initialOutput: initialOrchestratorOutput,
-            analystOutput,
+            analystResult,
             latestProducerOutput,
-            latestCriticOutput,
-            revisionHistory: formatRevisionHistory(steps),
+            latestCriticResult: finalCriticResult,
+            criticHistory,
             finalDecision,
             producerVersionsUsed: countProducerVersions(steps),
             maxProducerVersions: config.maxProducerVersions,
-            unresolvedCriticRemarks: finalDecision !== "APPROVED" ? latestCriticOutput : undefined
+            unresolvedCriticRemarks: finalDecision !== "APPROVED" ? finalCriticResult : undefined
           },
           createStepOptions(finalStepName, config, deadlineAt)
         ),
@@ -227,25 +213,24 @@ export async function analyzeJobApplication(
   }
 }
 
-async function runStep(
+async function runStep<TOutput>(
   agentName: JobApplicationAgentName,
   steps: JobApplicationStep[],
-  execute: () => Promise<AgentExecutionResult>,
+  execute: () => Promise<AgentExecutionResult<TOutput>>,
   runId: string,
   createMeta: (finishedAt: string) => AnalyzeJobApplicationMeta,
   logMessage?: string
-): Promise<string> {
+): Promise<TOutput> {
   console.log(logMessage ?? `[app] starting ${agentName.replace(".", " ")}`);
   const startedAt = new Date().toISOString();
   const startedAtMs = Date.now();
   const result = await execute();
   const finishedAt = new Date().toISOString();
   const durationMs = Date.now() - startedAtMs;
-  const output = result.output;
 
   const step = {
     agentName,
-    output,
+    output: result.outputText,
     startedAt,
     finishedAt,
     durationMs,
@@ -260,7 +245,7 @@ async function runStep(
   await saveRunStepOutput(runId, step);
   await saveRunMeta(runId, createMeta(finishedAt), steps);
 
-  return output;
+  return result.output;
 }
 
 function createRunId(): string {
@@ -274,13 +259,6 @@ function shouldRevise(decision: CriticDecision, cycle: number, maxProducerVersio
   }
 
   return decision === "NEEDS_REVISION" || decision === "UNKNOWN";
-}
-
-function formatRevisionHistory(steps: JobApplicationStep[]): string {
-  return steps
-    .filter((step) => step.agentName.startsWith("producer.") || step.agentName.startsWith("critic."))
-    .map((step) => `## ${step.agentName}\n\n${step.output}`)
-    .join("\n\n");
 }
 
 function countProducerVersions(steps: JobApplicationStep[]): number {
@@ -319,10 +297,6 @@ function createStepOptions(
 }
 
 function getMaxOutputTokens(stepName: JobApplicationAgentName): number {
-  if (stepName === "orchestrator.initial") {
-    return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_ORCHESTRATOR_INITIAL, 800);
-  }
-
   if (stepName === "analyst") {
     return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_ANALYST, 3500);
   }

@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import OpenAI from "openai";
+import type { z } from "zod";
 
 const envPath = resolve(process.cwd(), ".env");
 
@@ -14,6 +15,11 @@ const isMockMode = process.env.LLM_MOCK?.toLowerCase() === "true";
 export type CallLLMOptions = {
   maxOutputTokens?: number;
   timeoutMs?: number;
+};
+
+export type CallLLMJsonResult<T> = {
+  data: T;
+  raw: string;
 };
 
 export async function callLLM(
@@ -82,10 +88,98 @@ export async function callLLM(
   }
 }
 
+export async function callLLMJson<T>(
+  systemPrompt: string,
+  userPrompt: string,
+  schema: z.ZodType<T>,
+  contractName: string,
+  options: CallLLMOptions = {}
+): Promise<CallLLMJsonResult<T>> {
+  const raw = await callLLM(systemPrompt, userPrompt, options);
+  const jsonText = extractFirstJsonObject(raw);
+
+  let value: unknown;
+
+  try {
+    value = JSON.parse(jsonText);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`LLM returned invalid JSON for ${contractName}: ${message}`);
+  }
+
+  const result = schema.safeParse(value);
+
+  if (!result.success) {
+    const issues = result.error.issues
+      .slice(0, 8)
+      .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`)
+      .join("; ");
+
+    throw new Error(`LLM returned an invalid ${contractName} contract: ${issues}`);
+  }
+
+  return {
+    data: result.data,
+    raw
+  };
+}
+
+function extractFirstJsonObject(raw: string): string {
+  const text = raw.trim();
+
+  if (text.startsWith("{") && text.endsWith("}")) {
+    return text;
+  }
+
+  const startIndex = text.indexOf("{");
+
+  if (startIndex === -1) {
+    throw new Error("LLM response does not contain a JSON object.");
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = startIndex; index < text.length; index += 1) {
+    const character = text[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+    } else if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
+      depth -= 1;
+
+      if (depth === 0) {
+        return text.slice(startIndex, index + 1);
+      }
+    }
+  }
+
+  throw new Error("LLM response contains an incomplete JSON object.");
+}
+
 function createMockResponse(systemPrompt: string, userPrompt: string): string {
   const agentName = detectAgentName(systemPrompt);
   const mode = detectMode(userPrompt);
   const inputLength = userPrompt.length;
+
+  if (agentName === "analystAgent") {
+    return createMockAnalystResponse(inputLength);
+  }
 
   if (agentName === "criticAgent") {
     return createMockCriticResponse(userPrompt, inputLength);
@@ -107,51 +201,72 @@ The orchestrator successfully called ${agentName}.
 `.trim();
 }
 
+function createMockAnalystResponse(inputLength: number): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    recommendation: "LIKELY_APPLY",
+    priority: "MEDIUM",
+    verdict: `Mock analyst completed the analysis for ${inputLength} input characters.`,
+    limitations: ["Mock mode does not analyze real content."],
+    scores: {
+      atsMatch: { score: 7, reason: "Mock score." },
+      vacancyMatch: { score: 7, reason: "Mock score." },
+      recruiterAppeal: { score: 7, reason: "Mock score." },
+      interviewProbability: { score: 6, reason: "Mock score." },
+      offerPotential: { score: 6, reason: "Mock score." }
+    },
+    companyNeeds: ["Mock company need."],
+    companyAnalysis: ["Mock company analysis."],
+    gaps: [
+      {
+        requirement: "Mock requirement.",
+        status: "PARTIAL",
+        evidence: "Mock evidence.",
+        impact: "Mock impact."
+      }
+    ],
+    strengths: ["Mock candidate strength."],
+    risks: ["Mock candidate risk."],
+    keyRecommendations: ["Mock key recommendation."],
+    additionalImprovements: ["Mock additional improvement."],
+    producerBrief: {
+      positioning: "Mock positioning.",
+      mustEmphasize: ["Mock emphasis."],
+      vacancyKeywords: ["mock keyword"],
+      prohibitedClaims: ["Do not add unverified facts."]
+    },
+    criticChecklist: ["Check mock materials against the contract."]
+  });
+}
+
 function createMockCriticResponse(userPrompt: string, inputLength: number): string {
   const producerVersionMatch = userPrompt.match(/Producer version:\s*producer\.v(\d)|producer\.v(\d)/i);
   const version = Number(producerVersionMatch?.[1] ?? producerVersionMatch?.[2] ?? 1);
 
   if (version >= 3) {
-    return `
-DECISION: APPROVED
-
-SUMMARY:
-
-Mock critic approved producer.v${version}. Input length: ${inputLength} characters.
-`.trim();
+    return JSON.stringify({
+      schemaVersion: 1,
+      decision: "APPROVED",
+      issues: [],
+      summary: `Mock critic approved producer.v${version}. Input length: ${inputLength} characters.`
+    });
   }
 
-  return `
-DECISION: NEEDS_REVISION
-
-ISSUES:
-
-### ISSUE
-
-Category:
-ATS
-
-Severity:
-Major
-
-Problem:
-Mock critic requests another producer iteration.
-
-Reason:
-This mock response exercises the revision flow.
-
-Required action:
-Improve the producer output before final approval.
-
-Reference:
-Mock reference.
-
----
-
-SUMMARY:
-
-Mock critic requires revision before approval.
-`.trim();
+  return JSON.stringify({
+    schemaVersion: 1,
+    decision: "NEEDS_REVISION",
+    issues: [
+      {
+        category: "ATS",
+        severity: "Major",
+        problem: "Mock critic requests another producer iteration.",
+        reason: "This mock response exercises the revision flow.",
+        requiredAction: "Improve the producer output before final approval.",
+        reference: "Mock reference."
+      }
+    ],
+    summary: "Mock critic requires revision before approval."
+  });
 }
 
 function detectAgentName(systemPrompt: string): string {

@@ -118,7 +118,9 @@ function getRunDir(runId: string): string {
 }
 
 function stepFileName(agentName: JobApplicationAgentName): string {
-  return `${agentName}.md`;
+  const extension = agentName === "analyst" || agentName.startsWith("critic.") ? "json" : "md";
+
+  return `${agentName}.${extension}`;
 }
 
 function createResultMetaJson(result: AnalyzeJobApplicationResult): object {

@@ -36,7 +36,6 @@ export type JobApplicationInputMeta = {
 export type CriticDecision = "APPROVED" | "NEEDS_REVISION" | "UNKNOWN";
 
 export type JobApplicationAgentName =
-  | "orchestrator.initial"
   | "analyst"
   | "producer.v1"
   | "critic.v1"
@@ -87,11 +86,11 @@ export type AnalyzeJobApplicationResult = {
 export type JobApplicationDocuments = {
   resumeText: string;
   vacancyText: string;
-  initialOrchestratorOutput: string;
 };
 
-export type AgentExecutionResult = {
-  output: string;
+export type AgentExecutionResult<TOutput = string> = {
+  output: TOutput;
+  outputText: string;
   inputChars: number;
   outputChars: number;
 };

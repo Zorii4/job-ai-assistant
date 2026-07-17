@@ -1,35 +1,33 @@
 import { callLLM } from "../llm/llmClient.js";
 import { orchestratorSystemPrompt } from "../prompts/orchestrator.prompt.js";
+import type { AnalystResult } from "../contracts/analyst.contract.js";
+import type { CriticResult } from "../contracts/critic.contract.js";
 import type { AgentExecutionOptions, AgentExecutionResult, CriticDecision } from "../types/jobApplication.js";
-
-type InitialOrchestratorInput = {
-  mode: "initial";
-  resumeText: string;
-  vacancyText: string;
-};
 
 type FinalOrchestratorInput = {
   mode: "final";
   resumeText: string;
   vacancyText: string;
-  initialOutput: string;
-  analystOutput: string;
+  analystResult: AnalystResult;
   latestProducerOutput: string;
-  latestCriticOutput: string;
-  revisionHistory: string;
+  latestCriticResult: CriticResult;
+  criticHistory: Array<{
+    producerVersion: number;
+    result: CriticResult;
+  }>;
   finalDecision: CriticDecision;
   producerVersionsUsed: number;
   maxProducerVersions: number;
-  unresolvedCriticRemarks?: string;
+  unresolvedCriticRemarks?: CriticResult;
 };
 
-export type OrchestratorAgentInput = InitialOrchestratorInput | FinalOrchestratorInput;
+export type OrchestratorAgentInput = FinalOrchestratorInput;
 
 export async function orchestratorAgent(
   input: OrchestratorAgentInput,
   options: AgentExecutionOptions
 ): Promise<AgentExecutionResult> {
-  const userPrompt = input.mode === "initial" ? createInitialPrompt(input) : createFinalPrompt(input);
+  const userPrompt = createFinalPrompt(input);
   const output = await callLLM(orchestratorSystemPrompt, userPrompt, {
     maxOutputTokens: options.maxOutputTokens,
     timeoutMs: options.timeoutMs
@@ -37,21 +35,10 @@ export async function orchestratorAgent(
 
   return {
     output,
+    outputText: output,
     inputChars: orchestratorSystemPrompt.length + userPrompt.length,
     outputChars: output.length
   };
-}
-
-function createInitialPrompt(input: InitialOrchestratorInput): string {
-  return `
-Mode: initial
-
-Resume:
-${input.resumeText}
-
-Vacancy:
-${input.vacancyText}
-`.trim();
 }
 
 function createFinalPrompt(input: FinalOrchestratorInput): string {
@@ -64,20 +51,17 @@ ${input.resumeText}
 Vacancy:
 ${input.vacancyText}
 
-orchestrator.initial output:
-${input.initialOutput}
-
-analyst output:
-${input.analystOutput}
+Analyst contract:
+${JSON.stringify(input.analystResult, null, 2)}
 
 Latest producer output:
 ${input.latestProducerOutput}
 
-Latest critic output:
-${input.latestCriticOutput}
+Latest critic contract:
+${JSON.stringify(input.latestCriticResult, null, 2)}
 
-Revision history:
-${input.revisionHistory}
+Critic revision history:
+${JSON.stringify(input.criticHistory, null, 2)}
 
 Process status:
 - finalDecision: ${input.finalDecision}
@@ -92,6 +76,10 @@ ${
 }
 
 Unresolved critic remarks:
-${input.unresolvedCriticRemarks ?? "No unresolved critic remarks."}
+${
+  input.unresolvedCriticRemarks
+    ? JSON.stringify(input.unresolvedCriticRemarks, null, 2)
+    : "No unresolved critic remarks."
+}
 `.trim();
 }
