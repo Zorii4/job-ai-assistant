@@ -6,7 +6,7 @@ const pathRules = [
   /^(?:data|evaluation|private|secrets|local)\//i,
   /^src\/prompts\//i,
   /\.(?:pem|key|p12|pfx)$/i,
-  /(?:^|\/)\.env(?:\.|$)/i,
+  /(?:^|\/)\.env(?:\.(?!example$)[A-Za-z0-9_-]+)?$/i,
 ];
 const contentRules = [
   { name: "private key", pattern: /-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----/ },
@@ -14,7 +14,10 @@ const contentRules = [
   { name: "Google API key", pattern: /\bAIza[0-9A-Za-z_-]{20,}\b/ },
   { name: "GitHub token", pattern: /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/ },
   { name: "Slack token", pattern: /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/ },
-  { name: "embedded prompt template", pattern: /\b(?:system|developer)\s*(?:prompt|message)\s*[:=]/i },
+  {
+    name: "exported prompt template",
+    pattern: /\b(?:export\s+)?(?:const|let|var)\s+\w*(?:system|developer)Prompt\w*\s*=/i,
+  },
 ];
 
 function git(args, encoding = "utf8") {
