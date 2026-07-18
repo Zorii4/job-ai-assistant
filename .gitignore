@@ -3,8 +3,17 @@
 /node_modules
 /output
 .env
+/private/
+/secrets/
+/local/
+*.pem
+*.key
+*.p12
+*.pfx
 .agents
 /data
+/src/prompts/
+/evaluation
 
 # Logs
 logs
