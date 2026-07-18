@@ -1,8 +1,17 @@
 import { callLLMJson } from "../llm/llmClient.js";
+import { retryStructuredResponse } from "../llm/retryStructuredResponse.js";
 import { criticSystemPrompt } from "../prompts/critic.prompt.js";
 import type { AnalystResult } from "../contracts/analyst.contract.js";
 import { criticResultSchema, type CriticResult } from "../contracts/critic.contract.js";
 import type { AgentExecutionOptions, AgentExecutionResult, JobApplicationDocuments } from "../types/jobApplication.js";
+
+const criticRecoveryInstruction = `
+# Technical recovery
+
+The previous response did not pass the CriticResult schema. Re-run the same audit without changing its factual criteria.
+
+Return only one complete valid CriticResult JSON object for schemaVersion 3. The claimAudit field is mandatory and must contain at least one complete entry. Preserve the distinction between classification and severity; do not omit required fields.
+`.trim();
 
 export async function criticAgent(
   documents: JobApplicationDocuments,
@@ -27,14 +36,23 @@ ${JSON.stringify(analystResult, null, 2)}
 producerAgent output:
 ${producerOutput}
 `.trim();
-  const response = await callLLMJson(
-    criticSystemPrompt,
-    userPrompt,
-    criticResultSchema,
-    "CriticResult",
-    {
-      maxOutputTokens: options.maxOutputTokens,
-      timeoutMs: options.timeoutMs
+  const callCritic = (systemPrompt: string) =>
+      callLLMJson(
+        systemPrompt,
+        userPrompt,
+        criticResultSchema,
+        "CriticResult",
+        {
+          maxOutputTokens: options.maxOutputTokens,
+          timeoutMs: options.timeoutMs,
+          jsonMode: process.env.LLM_CRITIC_JSON_MODE === "true"
+        }
+      );
+  const response = await retryStructuredResponse(
+    () => callCritic(criticSystemPrompt),
+    () => callCritic(`${criticSystemPrompt}\n\n${criticRecoveryInstruction}`),
+    ({ phase, errorCode }) => {
+      console.warn(`[critic] technical ${phase} after ${errorCode}`);
     }
   );
   const outputText = JSON.stringify(response.data, null, 2);

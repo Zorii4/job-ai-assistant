@@ -1,6 +1,7 @@
-import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { analyzeJobApplication } from "../app/analyzeJobApplication.js";
+import { getLatestCriticResult } from "../evaluation/getLatestCriticResult.js";
 
 const controlCasesDir = resolve(process.cwd(), "evaluation", "control-cases");
 const evaluationResultsDir = resolve(process.cwd(), "evaluation", "results");
@@ -12,7 +13,11 @@ type CaseSummary = {
   durationMs: number;
   llmCalls?: number;
   finalDecision?: string;
+  reviewStatus?: string;
   revisionCyclesUsed?: number;
+  auditedClaims?: number;
+  unresolvedClaims?: number;
+  warningFindings?: number;
   errorCode?: string;
 };
 
@@ -29,8 +34,7 @@ async function main(): Promise<void> {
     throw new Error("No control cases found in evaluation/control-cases.");
   }
 
-  const runId = new Date().toISOString().replace(/[:.]/g, "-");
-  const runDir = join(evaluationResultsDir, runId);
+  const runDir = join(evaluationResultsDir, getEvaluationDate());
   const summaries: CaseSummary[] = [];
 
   await mkdir(runDir, { recursive: true });
@@ -53,23 +57,37 @@ async function main(): Promise<void> {
         vacancyText,
         source: "cli"
       });
+      const criticResult = getLatestCriticResult(result.steps);
+      const unresolvedClaims = criticResult.claimAudit.filter((entry) => entry.severity === "CRITICAL").length;
+      const warningFindings =
+        criticResult.claimAudit.filter((entry) => entry.severity === "WARNING").length +
+        criticResult.issues.filter((issue) => issue.severity === "WARNING").length;
       const summary: CaseSummary = {
         caseId,
         status: "SUCCEEDED",
         durationMs: Date.now() - startedAt,
         llmCalls: result.steps.length,
         finalDecision: result.meta.finalDecision,
-        revisionCyclesUsed: result.meta.revisionCyclesUsed
+        reviewStatus: criticResult.reviewStatus,
+        revisionCyclesUsed: result.meta.revisionCyclesUsed,
+        auditedClaims: criticResult.claimAudit.length,
+        unresolvedClaims,
+        warningFindings
       };
 
       await mkdir(caseResultDir, { recursive: true });
       await Promise.all([
         writeFile(join(caseResultDir, "final.md"), `${result.finalMarkdown}\n`, "utf8"),
+        writeFile(
+          join(caseResultDir, "critic-audit.json"),
+          `${JSON.stringify(criticResult, null, 2)}\n`,
+          "utf8"
+        ),
         writeFile(join(caseResultDir, "metrics.json"), `${JSON.stringify(summary, null, 2)}\n`, "utf8")
       ]);
       summaries.push(summary);
       console.log(
-        `[evaluation] ${caseId}: completed in ${summary.durationMs}ms, llmCalls=${summary.llmCalls}`
+        `[evaluation] ${caseId}: completed in ${summary.durationMs}ms, llmCalls=${summary.llmCalls}, auditedClaims=${summary.auditedClaims}, unresolvedClaims=${summary.unresolvedClaims}, warningFindings=${summary.warningFindings}`
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -81,13 +99,18 @@ async function main(): Promise<void> {
       };
 
       await mkdir(caseResultDir, { recursive: true });
+      await Promise.all([
+        rm(join(caseResultDir, "final.md"), { force: true }),
+        rm(join(caseResultDir, "critic-audit.json"), { force: true })
+      ]);
       await writeFile(join(caseResultDir, "metrics.json"), `${JSON.stringify(summary, null, 2)}\n`, "utf8");
       summaries.push(summary);
       console.error(`[evaluation] ${caseId}: failed with ${summary.errorCode}`);
     }
   }
 
-  await writeFile(join(runDir, "summary.json"), `${JSON.stringify(summaries, null, 2)}\n`, "utf8");
+  const dailySummaries = await getDailySummaries(runDir);
+  await writeFile(join(runDir, "summary.json"), `${JSON.stringify(dailySummaries, null, 2)}\n`, "utf8");
 
   const failedCount = summaries.filter((summary) => summary.status === "FAILED").length;
   console.log(`[evaluation] completed: ${summaries.length - failedCount}/${summaries.length} cases succeeded`);
@@ -95,6 +118,29 @@ async function main(): Promise<void> {
   if (failedCount > 0) {
     process.exitCode = 1;
   }
+}
+
+function getEvaluationDate(date = new Date()): string {
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
+}
+
+async function getDailySummaries(runDir: string): Promise<CaseSummary[]> {
+  const entries = await readdir(runDir, { withFileTypes: true });
+  const summaries = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory() && /^case-\d+$/.test(entry.name))
+      .map(async (entry) => {
+        const raw = await readFile(join(runDir, entry.name, "metrics.json"), "utf8");
+        return JSON.parse(raw) as CaseSummary;
+      })
+  );
+
+  return summaries.sort((left, right) => left.caseId.localeCompare(right.caseId));
 }
 
 async function getCaseDirectories(requestedCaseIds: string[]): Promise<string[]> {

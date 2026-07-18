@@ -23,35 +23,31 @@ after(async () => {
   await rm(testWorkingDirectory, { recursive: true, force: true });
 });
 
-test("Mock fast flow runs one producer version and reports progress", async () => {
+test("Mock fast flow blocks final output when critical findings remain", async () => {
   process.env.ANALYSIS_MODE = "fast";
   process.env.MAX_REVISION_CYCLES = "2";
   const progressEvents: AnalyzeJobApplicationProgressEvent[] = [];
 
-  const result = await analyzeJobApplication({
-    resumeText: "Candidate has product delivery experience.",
-    vacancyText: "The role requires product delivery and collaboration.",
-    source: "cli",
-    onProgress: (event) => {
-      progressEvents.push(event);
-    }
-  });
+  await assert.rejects(
+    analyzeJobApplication({
+      resumeText: "Candidate has product delivery experience.",
+      vacancyText: "The role requires product delivery and collaboration.",
+      source: "cli",
+      onProgress: (event) => {
+        progressEvents.push(event);
+      }
+    }),
+    /Critical Critic findings remain/
+  );
 
   assert.deepEqual(
-    result.steps.map((step) => step.agentName),
-    ["analyst", "producer.v1", "critic.v1", "orchestrator.final"]
+    progressEvents,
+    [
+      { stage: "analyst", stepName: "analyst" },
+      { stage: "producer", stepName: "producer.v1" },
+      { stage: "critic", stepName: "critic.v1" }
+    ]
   );
-  assert.deepEqual(progressEvents, [
-    { stage: "analyst", stepName: "analyst" },
-    { stage: "producer", stepName: "producer.v1" },
-    { stage: "critic", stepName: "critic.v1" },
-    { stage: "final", stepName: "orchestrator.final" }
-  ]);
-  assert.equal(result.meta.llmMock, true);
-  assert.equal(result.meta.analysisMode, "fast");
-  assert.equal(result.meta.revisionCyclesUsed, 0);
-  assert.equal(result.meta.finalDecision, "NEEDS_REVISION");
-  assert.match(result.finalMarkdown, /^# Mock response: orchestratorAgent/m);
 });
 
 test("Mock revision flow stops after the third producer version", async () => {

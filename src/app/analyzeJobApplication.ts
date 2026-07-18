@@ -142,6 +142,10 @@ export async function analyzeJobApplication(
       throw new Error("Critic did not return a result.");
     }
 
+    if (finalDecision === "NEEDS_REVISION") {
+      throw new Error("Critical Critic findings remain after the allowed revision cycles.");
+    }
+
     const finalStepName = "orchestrator.final";
     currentStepName = finalStepName;
     await notifyProgress(input, "final", finalStepName);

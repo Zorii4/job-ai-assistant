@@ -15,6 +15,7 @@ const isMockMode = process.env.LLM_MOCK?.toLowerCase() === "true";
 export type CallLLMOptions = {
   maxOutputTokens?: number;
   timeoutMs?: number;
+  jsonMode?: boolean;
 };
 
 export type CallLLMJsonResult<T> = {
@@ -61,7 +62,8 @@ export async function callLLM(
           { role: "user", content: userPrompt }
         ],
         temperature: 0.2,
-        max_tokens: options.maxOutputTokens
+        max_tokens: options.maxOutputTokens,
+        ...(options.jsonMode ? { response_format: { type: "json_object" as const } } : {})
       },
       {
         signal: abortController.signal
@@ -245,24 +247,48 @@ function createMockCriticResponse(userPrompt: string, inputLength: number): stri
 
   if (version >= 3) {
     return JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 3,
       decision: "APPROVED",
+      reviewStatus: "GOOD",
       issues: [],
+      claimAudit: [
+        {
+          claim: "Mock producer output is a generated test artifact.",
+          material: "Analysis",
+          classification: "DIRECT",
+          severity: "INFO",
+          evidence: [{ source: "resume", quote: "Mock resume input." }],
+          reason: "Mock mode provides deterministic test data only.",
+          requiredAction: ""
+        }
+      ],
       summary: `Mock critic approved producer.v${version}. Input length: ${inputLength} characters.`
     });
   }
 
   return JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 3,
     decision: "NEEDS_REVISION",
+    reviewStatus: "REJECTED",
     issues: [
       {
         category: "ATS",
-        severity: "Major",
+        severity: "CRITICAL",
         problem: "Mock critic requests another producer iteration.",
         reason: "This mock response exercises the revision flow.",
         requiredAction: "Improve the producer output before final approval.",
         reference: "Mock reference."
+      }
+    ],
+    claimAudit: [
+      {
+        claim: "Mock producer output needs another iteration.",
+        material: "CoverLetter",
+        classification: "UNSUPPORTED",
+        severity: "CRITICAL",
+        evidence: [],
+        reason: "This mock response exercises the revision flow.",
+        requiredAction: "Revise the mock producer output."
       }
     ],
     summary: "Mock critic requires revision before approval."
