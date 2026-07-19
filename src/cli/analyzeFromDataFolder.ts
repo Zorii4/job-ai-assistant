@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
-import { analyzeJobApplication } from "../app/analyzeJobApplication.js";
 import { readInputFile } from "../files/readInputFile.js";
-import { saveRunResult } from "../files/saveRunResult.js";
+import { analyzeJobApplication } from "../legacy/analyzeJobApplication.js";
+import { getRunResultDirectory } from "../files/saveRunResult.js";
 import { classifyLlmError } from "../llm/retryTransientRequest.js";
 
 const dataDir = resolve(process.cwd(), "data");
@@ -18,8 +18,7 @@ async function main(): Promise<void> {
       source: "cli"
     });
 
-    console.log("[cli] saving run result");
-    const runDir = await saveRunResult(result, resumeText, vacancyText);
+    const runDir = getRunResultDirectory(result.meta.runId);
 
     console.log(`[cli] done: ${runDir}`);
   } catch (error) {

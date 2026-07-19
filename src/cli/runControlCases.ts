@@ -1,7 +1,7 @@
 import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { analyzeJobApplication } from "../app/analyzeJobApplication.js";
 import { getLatestCriticResult } from "../evaluation/getLatestCriticResult.js";
+import { analyzeJobApplication } from "../legacy/analyzeJobApplication.js";
 import { classifyLlmError } from "../llm/retryTransientRequest.js";
 
 const controlCasesDir = resolve(process.cwd(), "evaluation", "control-cases");

@@ -6,7 +6,7 @@ export type AnalyzeJobApplicationInput = {
   source: AnalyzeJobApplicationSource;
   userId?: string;
   inputMeta?: JobApplicationInputMeta;
-  onProgress?: (event: AnalyzeJobApplicationProgressEvent) => Promise<void> | void;
+  onProgress?: AnalyzeJobApplicationProgressReporter;
 };
 
 export type AnalyzeJobApplicationProgressStage = "analyst" | "producer" | "critic" | "final";
@@ -15,6 +15,10 @@ export type AnalyzeJobApplicationProgressEvent = {
   stage: AnalyzeJobApplicationProgressStage;
   stepName: JobApplicationAgentName;
 };
+
+export type AnalyzeJobApplicationProgressReporter = (
+  event: AnalyzeJobApplicationProgressEvent
+) => Promise<void> | void;
 
 export type JobApplicationInputSourceType = "text" | "file";
 

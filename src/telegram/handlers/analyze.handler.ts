@@ -1,7 +1,7 @@
 import { InputFile, type Bot, type Context } from "grammy";
 import { join } from "node:path";
-import { analyzeJobApplication } from "../../app/analyzeJobApplication.js";
-import { saveRunResult } from "../../files/saveRunResult.js";
+import { getRunResultDirectory } from "../../files/saveRunResult.js";
+import { analyzeJobApplication } from "../../legacy/analyzeJobApplication.js";
 import { classifyLlmError } from "../../llm/retryTransientRequest.js";
 import type { AnalyzeJobApplicationProgressStage, JobApplicationInputPartMeta } from "../../types/jobApplication.js";
 import { formatFinalMarkdownForTelegram } from "../formatters/formatFinalMarkdownForTelegram.js";
@@ -136,8 +136,7 @@ async function handleAnalyzeInput(ctx: Context): Promise<void> {
           }
         });
 
-        console.log("[telegram] saving run result");
-        const runDir = await saveRunResult(result, resumeText, input.text);
+        const runDir = getRunResultDirectory(result.meta.runId);
 
         if (hasUnsafeFinalOutput(result.finalMarkdown)) {
           console.warn(`[telegram] unsafe final output detected for runId=${result.meta.runId}`);

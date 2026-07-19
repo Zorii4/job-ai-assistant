@@ -117,6 +117,10 @@ function getRunDir(runId: string): string {
   return join(outputDir, "runs", runId);
 }
 
+export function getRunResultDirectory(runId: string): string {
+  return getRunDir(runId);
+}
+
 function stepFileName(agentName: JobApplicationAgentName): string {
   const extension = agentName === "analyst" || agentName.startsWith("critic.") ? "json" : "md";
 
