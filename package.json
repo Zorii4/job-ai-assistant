@@ -9,6 +9,7 @@
     "build": "tsc",
     "check:public-safety": "node scripts/check-public-repository.mjs --all",
     "evaluate": "tsx src/cli/runControlCases.ts",
+    "measure:workflow": "tsx src/cli/measureWorkflowPerformance.ts",
     "test": "node --import tsx --test test/**/*.test.ts",
     "start": "node dist/main.js"
   },

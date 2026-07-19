@@ -21,8 +21,8 @@ async function main(): Promise<void> {
   registerStartHandler(bot);
   registerAnalyzeHandler(bot);
 
-  bot.catch((error) => {
-    console.error("[telegram] bot error", error);
+  bot.catch(() => {
+    console.error("[telegram] bot error");
   });
 
   console.log("[telegram] bot started with long polling");
@@ -31,9 +31,8 @@ async function main(): Promise<void> {
 
 try {
   await main();
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`[telegram] failed: ${message}`);
+} catch {
+  console.error("[telegram] failed");
   process.exitCode = 1;
 }
 

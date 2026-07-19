@@ -59,6 +59,34 @@ test("Final Orchestrator prompt does not forward Critic data", () => {
   assert.doesNotMatch(prompt, /Critic revision history/i);
 });
 
+test("Limited Final Orchestrator context omits source documents", () => {
+  const resumePrivateMarker = "RESUME_PRIVATE_MARKER_DO_NOT_FORWARD";
+  const vacancyPrivateMarker = "VACANCY_PRIVATE_MARKER_DO_NOT_FORWARD";
+  const fullPrompt = createFinalPrompt({
+    mode: "final",
+    resumeText: resumePrivateMarker,
+    vacancyText: vacancyPrivateMarker,
+    analystResult,
+    latestProducerOutput: "Final application materials."
+  });
+  const limitedPrompt = createFinalPrompt({
+    mode: "final",
+    contextMode: "limited",
+    analystResult,
+    latestProducerOutput: "Final application materials."
+  });
+
+  assert.match(fullPrompt, new RegExp(resumePrivateMarker));
+  assert.match(fullPrompt, new RegExp(vacancyPrivateMarker));
+  assert.doesNotMatch(limitedPrompt, new RegExp(resumePrivateMarker));
+  assert.doesNotMatch(limitedPrompt, new RegExp(vacancyPrivateMarker));
+  assert.doesNotMatch(limitedPrompt, /^Resume:/m);
+  assert.doesNotMatch(limitedPrompt, /^Vacancy:/m);
+  assert.match(limitedPrompt, /Source resume and vacancy are deliberately omitted/i);
+  assert.match(limitedPrompt, /Analyst contract:/i);
+  assert.match(limitedPrompt, /Latest producer output:/i);
+});
+
 test("Final output guard rejects internal Critic and revision markers", () => {
   const unsafeOutputs = [
     "CRITIC: unresolved note",

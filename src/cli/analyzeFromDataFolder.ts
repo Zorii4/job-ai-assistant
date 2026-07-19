@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { analyzeJobApplication } from "../app/analyzeJobApplication.js";
 import { readInputFile } from "../files/readInputFile.js";
 import { saveRunResult } from "../files/saveRunResult.js";
+import { classifyLlmError } from "../llm/retryTransientRequest.js";
 
 const dataDir = resolve(process.cwd(), "data");
 
@@ -22,8 +23,7 @@ async function main(): Promise<void> {
 
     console.log(`[cli] done: ${runDir}`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[cli] failed: ${message}`);
+    console.error(`[cli] failed: ${classifyLlmError(error)}`);
     process.exitCode = 1;
   }
 }

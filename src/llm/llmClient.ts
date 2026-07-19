@@ -2,6 +2,10 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import OpenAI from "openai";
 import type { z } from "zod";
+import {
+  retryTransientRequest,
+  type LlmAttemptMetrics
+} from "./retryTransientRequest.js";
 
 const envPath = resolve(process.cwd(), ".env");
 
@@ -16,6 +20,7 @@ export type CallLLMOptions = {
   maxOutputTokens?: number;
   timeoutMs?: number;
   jsonMode?: boolean;
+  metrics?: LlmAttemptMetrics;
 };
 
 export type CallLLMJsonResult<T> = {
@@ -29,6 +34,9 @@ export async function callLLM(
   options: CallLLMOptions = {}
 ): Promise<string> {
   if (isMockMode) {
+    if (options.metrics) {
+      options.metrics.attemptCount += 1;
+    }
     return createMockResponse(systemPrompt, userPrompt);
   }
 
@@ -48,46 +56,61 @@ export async function callLLM(
     baseURL: openAICompatibleBaseUrl,
     apiKey
   });
-  const abortController = new AbortController();
-  const timeout = options.timeoutMs
-    ? setTimeout(() => abortController.abort(), options.timeoutMs)
-    : undefined;
-
-  try {
-    const response = await client.chat.completions.create(
-      {
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        temperature: 0.2,
-        max_tokens: options.maxOutputTokens,
-        ...(options.jsonMode ? { response_format: { type: "json_object" as const } } : {})
-      },
-      {
-        signal: abortController.signal
+  return retryTransientRequest(
+    async () => {
+      if (options.metrics) {
+        options.metrics.attemptCount += 1;
       }
-    );
+      const abortController = new AbortController();
+      const timeout = options.timeoutMs
+        ? setTimeout(() => abortController.abort(), options.timeoutMs)
+        : undefined;
 
-    const content = response.choices[0]?.message.content?.trim();
+      try {
+        const response = await client.chat.completions.create(
+          {
+            model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt }
+            ],
+            temperature: 0.2,
+            max_tokens: options.maxOutputTokens,
+            ...(options.jsonMode ? { response_format: { type: "json_object" as const } } : {})
+          },
+          {
+            signal: abortController.signal
+          }
+        );
 
-    if (!content) {
-      throw new Error("LLM returned an empty response.");
+        const content = response.choices[0]?.message.content?.trim();
+
+        if (!content) {
+          throw new Error("LLM returned an empty response.");
+        }
+
+        return content;
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          throw new Error(`LLM step timed out after ${options.timeoutMs}ms.`);
+        }
+
+        throw error;
+      } finally {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+      }
+    },
+    {
+      maxAttempts: getTransientRetryMaxAttempts(),
+      delayMs: getTransientRetryDelayMs(),
+      onRetry: ({ attempt, errorCode }) => {
+        options.metrics?.retryErrorCodes.push(errorCode);
+        console.warn(`[llm] retrying transient ${errorCode} after attempt ${attempt}`);
+      }
     }
-
-    return content;
-  } catch (error) {
-    if (abortController.signal.aborted) {
-      throw new Error(`LLM step timed out after ${options.timeoutMs}ms.`);
-    }
-
-    throw error;
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-  }
+  );
 }
 
 export async function callLLMJson<T>(
@@ -339,6 +362,24 @@ function detectMode(userPrompt: string): string | undefined {
   const modeMatch = userPrompt.match(/Mode:\s*(initial|final)/i);
 
   return modeMatch?.[1]?.toLowerCase();
+}
+
+function getTransientRetryMaxAttempts(): number {
+  return parsePositiveInteger(process.env.LLM_TRANSIENT_RETRY_MAX_ATTEMPTS, 2, 2);
+}
+
+function getTransientRetryDelayMs(): number {
+  return parsePositiveInteger(process.env.LLM_TRANSIENT_RETRY_DELAY_MS, 250);
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number, maximum?: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return maximum ? Math.min(parsed, maximum) : parsed;
 }
 
 function loadEnvFile(path: string): void {

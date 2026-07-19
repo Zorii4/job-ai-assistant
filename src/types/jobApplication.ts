@@ -35,6 +35,12 @@ export type JobApplicationInputMeta = {
 
 export type CriticDecision = "APPROVED" | "NEEDS_REVISION" | "UNKNOWN";
 
+export type LlmErrorCode =
+  | "LLM_TIMEOUT"
+  | "LLM_NETWORK_ERROR"
+  | "LLM_RESPONSE_INVALID"
+  | "LLM_UNKNOWN_ERROR";
+
 export type JobApplicationAgentName =
   | "analyst"
   | "producer.v1"
@@ -53,6 +59,8 @@ export type JobApplicationStep = {
   durationMs: number;
   inputChars: number;
   outputChars: number;
+  attemptCount: number;
+  retryErrorCodes: LlmErrorCode[];
 };
 
 export type AnalyzeJobApplicationMeta = {
@@ -70,6 +78,7 @@ export type AnalyzeJobApplicationMeta = {
   analysisMode?: "fast" | "deep";
   maxRevisionCycles?: number;
   error?: {
+    code: LlmErrorCode;
     message: string;
     stepName?: JobApplicationAgentName;
     occurredAt: string;
@@ -92,6 +101,8 @@ export type AgentExecutionResult<TOutput = string> = {
   outputText: string;
   inputChars: number;
   outputChars: number;
+  attemptCount: number;
+  retryErrorCodes: LlmErrorCode[];
 };
 
 export type AgentExecutionOptions = {

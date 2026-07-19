@@ -110,7 +110,7 @@ export async function cleanupOldRuns(): Promise<void> {
 }
 
 function shouldSaveInputText(): boolean {
-  return process.env.SAVE_INPUT_TEXT?.toLowerCase() !== "false";
+  return process.env.SAVE_INPUT_TEXT?.toLowerCase() === "true";
 }
 
 function getRunDir(runId: string): string {
@@ -136,7 +136,9 @@ function createRunMetaJson(meta: AnalyzeJobApplicationMeta, steps: JobApplicatio
       finishedAt: step.finishedAt,
       durationMs: step.durationMs,
       inputChars: step.inputChars,
-      outputChars: step.outputChars
+      outputChars: step.outputChars,
+      attemptCount: step.attemptCount,
+      retryErrorCodes: step.retryErrorCodes
     }))
   };
 }

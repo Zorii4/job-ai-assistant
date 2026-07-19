@@ -1,4 +1,5 @@
 import { callLLMJson } from "../llm/llmClient.js";
+import { createLlmAttemptMetrics } from "../llm/retryTransientRequest.js";
 import { analystSystemPrompt } from "../prompts/analyst.prompt.js";
 import { analystResultSchema, type AnalystResult } from "../contracts/analyst.contract.js";
 import type { AgentExecutionOptions, AgentExecutionResult, JobApplicationDocuments } from "../types/jobApplication.js";
@@ -14,6 +15,7 @@ ${documents.resumeText}
 Vacancy:
 ${documents.vacancyText}
 `.trim();
+  const llmMetrics = createLlmAttemptMetrics();
   const response = await callLLMJson(
     analystSystemPrompt,
     userPrompt,
@@ -21,7 +23,8 @@ ${documents.vacancyText}
     "AnalystResult",
     {
       maxOutputTokens: options.maxOutputTokens,
-      timeoutMs: options.timeoutMs
+      timeoutMs: options.timeoutMs,
+      metrics: llmMetrics
     }
   );
   const outputText = JSON.stringify(response.data, null, 2);
@@ -30,6 +33,8 @@ ${documents.vacancyText}
     output: response.data,
     outputText,
     inputChars: analystSystemPrompt.length + userPrompt.length,
-    outputChars: response.raw.length
+    outputChars: response.raw.length,
+    attemptCount: llmMetrics.attemptCount,
+    retryErrorCodes: llmMetrics.retryErrorCodes
   };
 }

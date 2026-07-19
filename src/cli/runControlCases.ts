@@ -2,6 +2,7 @@ import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promise
 import { join, resolve } from "node:path";
 import { analyzeJobApplication } from "../app/analyzeJobApplication.js";
 import { getLatestCriticResult } from "../evaluation/getLatestCriticResult.js";
+import { classifyLlmError } from "../llm/retryTransientRequest.js";
 
 const controlCasesDir = resolve(process.cwd(), "evaluation", "control-cases");
 const evaluationResultsDir = resolve(process.cwd(), "evaluation", "results");
@@ -170,15 +171,9 @@ async function validateCaseFiles(caseDir: string): Promise<void> {
 }
 
 function toErrorCode(message: string): string {
-  if (message.includes("timed out")) {
-    return "LLM_TIMEOUT";
-  }
+  const errorCode = classifyLlmError(new Error(message));
 
-  if (message.includes("LLM returned") || message.includes("LLM response contains")) {
-    return "LLM_RESPONSE_INVALID";
-  }
-
-  return "EVALUATION_RUN_FAILED";
+  return errorCode === "LLM_UNKNOWN_ERROR" ? "EVALUATION_RUN_FAILED" : errorCode;
 }
 
 await main();

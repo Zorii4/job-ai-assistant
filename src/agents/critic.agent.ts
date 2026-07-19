@@ -1,5 +1,6 @@
 import { callLLMJson } from "../llm/llmClient.js";
 import { retryStructuredResponse } from "../llm/retryStructuredResponse.js";
+import { createLlmAttemptMetrics } from "../llm/retryTransientRequest.js";
 import { criticSystemPrompt } from "../prompts/critic.prompt.js";
 import type { AnalystResult } from "../contracts/analyst.contract.js";
 import { criticResultSchema, type CriticResult } from "../contracts/critic.contract.js";
@@ -36,6 +37,7 @@ ${JSON.stringify(analystResult, null, 2)}
 producerAgent output:
 ${producerOutput}
 `.trim();
+  const llmMetrics = createLlmAttemptMetrics();
   const callCritic = (systemPrompt: string) =>
       callLLMJson(
         systemPrompt,
@@ -45,13 +47,15 @@ ${producerOutput}
         {
           maxOutputTokens: options.maxOutputTokens,
           timeoutMs: options.timeoutMs,
-          jsonMode: process.env.LLM_CRITIC_JSON_MODE === "true"
+          jsonMode: process.env.LLM_CRITIC_JSON_MODE === "true",
+          metrics: llmMetrics
         }
       );
   const response = await retryStructuredResponse(
     () => callCritic(criticSystemPrompt),
     () => callCritic(`${criticSystemPrompt}\n\n${criticRecoveryInstruction}`),
     ({ phase, errorCode }) => {
+      llmMetrics.retryErrorCodes.push(errorCode);
       console.warn(`[critic] technical ${phase} after ${errorCode}`);
     }
   );
@@ -61,6 +65,8 @@ ${producerOutput}
     output: response.data,
     outputText,
     inputChars: criticSystemPrompt.length + userPrompt.length,
-    outputChars: response.raw.length
+    outputChars: response.raw.length,
+    attemptCount: llmMetrics.attemptCount,
+    retryErrorCodes: llmMetrics.retryErrorCodes
   };
 }

@@ -90,5 +90,12 @@ test("Mock revision flow stops after the third producer version", async () => {
   assert.equal(result.meta.analysisMode, "deep");
   assert.equal(result.meta.revisionCyclesUsed, 2);
   assert.equal(result.meta.finalDecision, "APPROVED");
+  assert.deepEqual(
+    result.steps.map((step) => ({
+      attemptCount: step.attemptCount,
+      retryErrorCodes: step.retryErrorCodes
+    })),
+    Array.from({ length: 8 }, () => ({ attemptCount: 1, retryErrorCodes: [] }))
+  );
   assert.match(result.finalMarkdown, /^# Mock response: orchestratorAgent/m);
 });

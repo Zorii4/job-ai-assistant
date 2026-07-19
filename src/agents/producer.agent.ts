@@ -1,4 +1,5 @@
 import { callLLM } from "../llm/llmClient.js";
+import { createLlmAttemptMetrics } from "../llm/retryTransientRequest.js";
 import { producerSystemPrompt } from "../prompts/producer.prompt.js";
 import type { AnalystResult } from "../contracts/analyst.contract.js";
 import type { CriticResult } from "../contracts/critic.contract.js";
@@ -27,15 +28,19 @@ ${previousProducerOutput ?? "No previous producer output."}
 criticAgent feedback:
 ${criticFeedback ? JSON.stringify(criticFeedback, null, 2) : "No critic feedback yet."}
 `.trim();
+  const llmMetrics = createLlmAttemptMetrics();
   const output = await callLLM(producerSystemPrompt, userPrompt, {
     maxOutputTokens: options.maxOutputTokens,
-    timeoutMs: options.timeoutMs
+    timeoutMs: options.timeoutMs,
+    metrics: llmMetrics
   });
 
   return {
     output,
     outputText: output,
     inputChars: producerSystemPrompt.length + userPrompt.length,
-    outputChars: output.length
+    outputChars: output.length,
+    attemptCount: llmMetrics.attemptCount,
+    retryErrorCodes: llmMetrics.retryErrorCodes
   };
 }

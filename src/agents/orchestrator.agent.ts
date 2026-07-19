@@ -1,15 +1,26 @@
 import { callLLM } from "../llm/llmClient.js";
+import { createLlmAttemptMetrics } from "../llm/retryTransientRequest.js";
 import { orchestratorSystemPrompt } from "../prompts/orchestrator.prompt.js";
 import type { AnalystResult } from "../contracts/analyst.contract.js";
 import type { AgentExecutionOptions, AgentExecutionResult } from "../types/jobApplication.js";
 
-type FinalOrchestratorInput = {
+export type OrchestratorContextMode = "full" | "limited";
+
+type FinalOrchestratorInputBase = {
   mode: "final";
-  resumeText: string;
-  vacancyText: string;
   analystResult: AnalystResult;
   latestProducerOutput: string;
 };
+
+type FinalOrchestratorInput =
+  | (FinalOrchestratorInputBase & {
+      contextMode?: "full";
+      resumeText: string;
+      vacancyText: string;
+    })
+  | (FinalOrchestratorInputBase & {
+      contextMode: "limited";
+    });
 
 export type OrchestratorAgentInput = FinalOrchestratorInput;
 
@@ -18,28 +29,37 @@ export async function orchestratorAgent(
   options: AgentExecutionOptions
 ): Promise<AgentExecutionResult> {
   const userPrompt = createFinalPrompt(input);
+  const llmMetrics = createLlmAttemptMetrics();
   const output = await callLLM(orchestratorSystemPrompt, userPrompt, {
     maxOutputTokens: options.maxOutputTokens,
-    timeoutMs: options.timeoutMs
+    timeoutMs: options.timeoutMs,
+    metrics: llmMetrics
   });
 
   return {
     output,
     outputText: output,
     inputChars: orchestratorSystemPrompt.length + userPrompt.length,
-    outputChars: output.length
+    outputChars: output.length,
+    attemptCount: llmMetrics.attemptCount,
+    retryErrorCodes: llmMetrics.retryErrorCodes
   };
 }
 
 export function createFinalPrompt(input: FinalOrchestratorInput): string {
-  return `
-Mode: final
-
-Resume:
+  const sourceDocuments =
+    input.contextMode === "limited"
+      ? "Source resume and vacancy are deliberately omitted. Do not infer or restore facts that are absent from the supplied contracts."
+      : `Resume:
 ${input.resumeText}
 
 Vacancy:
-${input.vacancyText}
+${input.vacancyText}`;
+
+  return `
+Mode: final
+
+${sourceDocuments}
 
 Analyst contract:
 ${JSON.stringify(input.analystResult, null, 2)}

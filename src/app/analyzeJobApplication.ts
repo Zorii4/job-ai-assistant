@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { orchestratorAgent } from "../agents/orchestrator.agent.js";
+import { classifyLlmError } from "../llm/retryTransientRequest.js";
 import { analystAgent } from "../agents/analyst.agent.js";
 import { producerAgent } from "../agents/producer.agent.js";
 import { criticAgent } from "../agents/critic.agent.js";
@@ -179,18 +180,19 @@ export async function analyzeJobApplication(
 
     return result;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const errorCode = classifyLlmError(error);
     const finishedAt = new Date().toISOString();
     const errorMeta = {
       ...createMeta(finishedAt),
       error: {
-        message,
+        code: errorCode,
+        message: errorCode,
         stepName: currentStepName,
         occurredAt: finishedAt
       }
     };
 
-    console.error(`[app] failed ${currentStepName ?? "analysis"}: ${message}`);
+    console.error(`[app] failed ${currentStepName ?? "analysis"}: ${errorCode}`);
     await saveRunMeta(runId, errorMeta, steps);
 
     throw error;
@@ -219,12 +221,14 @@ async function runStep<TOutput>(
     finishedAt,
     durationMs,
     inputChars: result.inputChars,
-    outputChars: result.outputChars
+    outputChars: result.outputChars,
+    attemptCount: result.attemptCount,
+    retryErrorCodes: result.retryErrorCodes
   };
 
   steps.push(step);
   console.log(
-    `[app] finished ${agentName} in ${durationMs}ms, inputChars=${step.inputChars}, outputChars=${step.outputChars}`
+    `[app] finished ${agentName} in ${durationMs}ms, attempts=${step.attemptCount}, inputChars=${step.inputChars}, outputChars=${step.outputChars}`
   );
   await saveRunStepOutput(runId, step);
   await saveRunMeta(runId, createMeta(finishedAt), steps);

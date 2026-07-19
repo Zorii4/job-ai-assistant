@@ -2,6 +2,7 @@ import { InputFile, type Bot, type Context } from "grammy";
 import { join } from "node:path";
 import { analyzeJobApplication } from "../../app/analyzeJobApplication.js";
 import { saveRunResult } from "../../files/saveRunResult.js";
+import { classifyLlmError } from "../../llm/retryTransientRequest.js";
 import type { AnalyzeJobApplicationProgressStage, JobApplicationInputPartMeta } from "../../types/jobApplication.js";
 import { formatFinalMarkdownForTelegram } from "../formatters/formatFinalMarkdownForTelegram.js";
 import {
@@ -152,7 +153,7 @@ async function handleAnalyzeInput(ctx: Context): Promise<void> {
 
         console.log("[telegram] done");
       } catch (error) {
-        console.error("[telegram] analyze failed", error);
+        console.error(`[telegram] analyze failed: ${classifyLlmError(error)}`);
         await ctx.reply("Не удалось выполнить анализ. Попробуйте еще раз позже.");
       }
     }
