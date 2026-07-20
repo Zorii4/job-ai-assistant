@@ -3,14 +3,33 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "analyze": "tsx src/cli/analyzeFromDataFolder.ts",
     "bot": "tsx src/telegram/bot.ts",
-    "build": "tsc",
+    "build": "npm run build:legacy && npm run build:contracts && npm run build:api && npm run build:web",
+    "build:api": "npm run build --workspace @job-ai-assistant/api",
+    "build:contracts": "npm run build --workspace @job-ai-assistant/contracts",
+    "build:legacy": "tsc",
+    "build:web": "npm run build --workspace @job-ai-assistant/web",
     "check:public-safety": "node scripts/check-public-repository.mjs --all",
+    "dev:api": "npm run build:contracts && npm run dev --workspace @job-ai-assistant/api",
+    "dev:web": "npm run build:contracts && npm run dev --workspace @job-ai-assistant/web",
     "evaluate": "tsx src/cli/runControlCases.ts",
     "measure:workflow": "tsx src/cli/measureWorkflowPerformance.ts",
-    "test": "node --import tsx --test test/**/*.test.ts",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:status": "prisma migrate status",
+    "prisma:validate": "prisma validate",
+    "start:api": "npm run start --workspace @job-ai-assistant/api",
+    "test": "npm run test:legacy && npm run test:contracts && npm run build:contracts && npm run test:api && npm run test:web",
+    "test:api": "npm run test --workspace @job-ai-assistant/api",
+    "test:contracts": "npm run test --workspace @job-ai-assistant/contracts",
+    "test:legacy": "node --import tsx --test test/**/*.test.ts",
+    "test:web": "npm run test --workspace @job-ai-assistant/web",
     "start": "node dist/main.js"
   },
   "dependencies": {
@@ -22,6 +41,7 @@
   "devDependencies": {
     "@types/node": "^20.14.12",
     "@types/pdf-parse": "^1.1.4",
+    "prisma": "^7.8.0",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4"
   }

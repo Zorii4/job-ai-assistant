@@ -1,0 +1,44 @@
+import {
+  ArgumentsHost,
+  Catch,
+  type ExceptionFilter,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
+import type { Response } from 'express';
+
+import {
+  API_SCHEMA_VERSION,
+  ApiErrorResponseSchema,
+  type ApiErrorResponse,
+} from '@job-ai-assistant/contracts';
+
+@Catch()
+export class ApiExceptionFilter implements ExceptionFilter {
+  catch(exception: unknown, host: ArgumentsHost): void {
+    const response = host.switchToHttp().getResponse<Response>();
+    const status =
+      exception instanceof HttpException
+        ? exception.getStatus()
+        : HttpStatus.INTERNAL_SERVER_ERROR;
+
+    response.status(status).json(createErrorResponse(status));
+  }
+}
+
+function createErrorResponse(status: number): ApiErrorResponse {
+  const error =
+    status === HttpStatus.BAD_REQUEST
+      ? { code: 'BAD_REQUEST' as const, message: 'Некорректный запрос.' }
+      : status === HttpStatus.NOT_FOUND
+        ? { code: 'NOT_FOUND' as const, message: 'Ресурс не найден.' }
+        : {
+            code: 'INTERNAL_ERROR' as const,
+            message: 'Внутренняя ошибка сервиса. Повторите попытку позже.',
+          };
+
+  return ApiErrorResponseSchema.parse({
+    schemaVersion: API_SCHEMA_VERSION,
+    error,
+  });
+}

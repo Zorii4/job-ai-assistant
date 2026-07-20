@@ -1,0 +1,36 @@
+:root {
+  color: #172033;
+  background: #f6f8fc;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  box-sizing: border-box;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 64px 24px;
+}
+
+h1,
+h2 {
+  color: #102a56;
+}
+
+button {
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: #1456b8;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 3px solid #f1b64c;
+  outline-offset: 3px;
+}
