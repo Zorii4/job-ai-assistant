@@ -3,6 +3,7 @@
 /apps/*/dist/
 /packages/*/dist/
 /node_modules
+/apps/*/node_modules/
 /output
 .env
 /private/
@@ -37,6 +38,15 @@ lerna-debug.log*
 /evaluation
 /evaluation/control-cases/case-*/
 /evaluation/results/
+
+# Local Hallmark design skill, its session memory, and locked local design system
+/.codex/
+/.hallmark/
+/design.md
+/DESIGN.md
+
+# Generated Prisma Client is rebuilt from prisma/schema.prisma.
+/apps/api/src/generated/prisma/
 
 # IDEs and editors
 /.idea

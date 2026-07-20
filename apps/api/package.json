@@ -4,20 +4,29 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "npm run prisma:generate && tsc -p tsconfig.build.json",
     "dev": "tsx watch src/main.ts",
+    "invites:create": "tsx src/cli/create-invite.ts",
+    "prisma:generate": "prisma generate --schema ../../prisma/schema.prisma",
     "start": "node dist/main.js",
-    "test": "node --import tsx --test test/**/*.test.ts"
+    "test": "npm run prisma:generate && node --import tsx --import ./test/setup-env.ts --test test/**/*.test.ts"
   },
   "dependencies": {
+    "@better-auth/prisma-adapter": "^1.6.23",
     "@job-ai-assistant/contracts": "*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "better-auth": "^1.6.23",
+    "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
+    "resend": "^6.17.2",
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
-    "@types/express": "^5.0.6"
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.20.0"
   }
 }

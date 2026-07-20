@@ -1,0 +1,9 @@
+process.env.BETTER_AUTH_SECRET ??= 'test-secret-that-is-long-enough-for-better-auth';
+process.env.BETTER_AUTH_URL ??= 'http://localhost:3000';
+process.env.RESEND_API_KEY ??= 're_test_key_not_used_for_network_requests';
+process.env.AUTH_EMAIL_FROM ??= 'no-reply@auth.example.test';
+process.env.POSTGRES_USER ??= 'test';
+process.env.POSTGRES_PASSWORD ??= 'test';
+process.env.POSTGRES_DB ??= 'test';
+process.env.POSTGRES_HOST ??= '127.0.0.1';
+process.env.POSTGRES_PORT ??= '5432';

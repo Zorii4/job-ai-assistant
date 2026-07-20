@@ -28,6 +28,7 @@ test('GET /health returns the API health status', async (t) => {
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+  assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
   assert.deepEqual(await response.json(), {
     schemaVersion: API_SCHEMA_VERSION,
     status: 'ok',

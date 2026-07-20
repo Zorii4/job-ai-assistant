@@ -59,3 +59,22 @@ test('ApiErrorResponseSchema accepts only the public error fields', () => {
     }),
   );
 });
+
+test('ApiErrorResponseSchema accepts the public unauthorized error', () => {
+  assert.deepEqual(
+    ApiErrorResponseSchema.parse({
+      schemaVersion: API_SCHEMA_VERSION,
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Требуется авторизация.',
+      },
+    }),
+    {
+      schemaVersion: API_SCHEMA_VERSION,
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Требуется авторизация.',
+      },
+    },
+  );
+});

@@ -13,6 +13,7 @@ export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 
 export const ApiErrorCodeSchema = z.enum([
   'BAD_REQUEST',
+  'UNAUTHORIZED',
   'NOT_FOUND',
   'INTERNAL_ERROR',
 ]);

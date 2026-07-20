@@ -30,6 +30,11 @@ function createErrorResponse(status: number): ApiErrorResponse {
   const error =
     status === HttpStatus.BAD_REQUEST
       ? { code: 'BAD_REQUEST' as const, message: 'Некорректный запрос.' }
+      : status === HttpStatus.UNAUTHORIZED
+        ? {
+            code: 'UNAUTHORIZED' as const,
+            message: 'Требуется авторизация.',
+          }
       : status === HttpStatus.NOT_FOUND
         ? { code: 'NOT_FOUND' as const, message: 'Ресурс не найден.' }
         : {
