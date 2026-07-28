@@ -3,4 +3,12 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    proxy: {
+      '/health': 'http://localhost:3000',
+      '/users': 'http://localhost:3000',
+      '/resumes': 'http://localhost:3000',
+      '/api/auth': 'http://localhost:3000',
+    },
+  },
 });

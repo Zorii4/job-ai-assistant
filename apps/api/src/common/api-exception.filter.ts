@@ -30,6 +30,16 @@ function createErrorResponse(status: number): ApiErrorResponse {
   const error =
     status === HttpStatus.BAD_REQUEST
       ? { code: 'BAD_REQUEST' as const, message: 'Некорректный запрос.' }
+      : status === HttpStatus.PAYLOAD_TOO_LARGE
+        ? {
+            code: 'PAYLOAD_TOO_LARGE' as const,
+            message: 'Размер файла превышает допустимый лимит.',
+          }
+        : status === HttpStatus.TOO_MANY_REQUESTS
+          ? {
+              code: 'RESUME_LIMIT_REACHED' as const,
+              message: 'Можно сохранить не более пяти резюме.',
+            }
       : status === HttpStatus.UNAUTHORIZED
         ? {
             code: 'UNAUTHORIZED' as const,

@@ -4,9 +4,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-job_ai_assistant}
       POSTGRES_USER: ${POSTGRES_USER:-job_ai_assistant}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-password}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -15,53 +13,49 @@ services:
       timeout: 5s
       retries: 10
       start_period: 5s
+    restart: unless-stopped
 
   api:
     build:
       context: .
-      dockerfile: Dockerfile.dev
-    command: npm run dev:api
+      target: api
+    command: >-
+      sh -c "npm run prisma:migrate:deploy && npm run start:api"
     environment:
+      NODE_ENV: production
       PORT: 3000
-      WEB_ORIGIN: http://localhost:5173
-    ports:
-      - "${API_PORT:-3000}:3000"
-    volumes:
-      - .:/workspace
-      - node-modules:/workspace/node_modules
+      POSTGRES_DB: ${POSTGRES_DB:-job_ai_assistant}
+      POSTGRES_USER: ${POSTGRES_USER:-job_ai_assistant}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+      BETTER_AUTH_URL: ${PUBLIC_ORIGIN:-http://localhost}
+      WEB_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      AUTH_EMAIL_FROM: ${AUTH_EMAIL_FROM:-}
+      AUTH_CLIENT_IP_HEADER: x-real-ip
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:3000/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))",
-        ]
-      interval: 5s
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 10s
+      start_period: 20s
+    restart: unless-stopped
 
   web:
     build:
       context: .
-      dockerfile: Dockerfile.dev
-    command: npm run dev:web
-    environment:
-      VITE_API_BASE_URL: http://localhost:${API_PORT:-3000}
-      CHOKIDAR_USEPOLLING: "true"
+      target: web
     ports:
-      - "${WEB_PORT:-5173}:5173"
-    volumes:
-      - .:/workspace
-      - node-modules:/workspace/node_modules
+      - "${HTTP_PORT:-80}:80"
     depends_on:
       api:
         condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres-data:
-  node-modules:

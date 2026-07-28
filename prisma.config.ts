@@ -1,6 +1,9 @@
-process.loadEnvFile('.env');
-
+import { existsSync } from 'node:fs';
 import { defineConfig } from 'prisma/config';
+
+if (existsSync('.env')) {
+  process.loadEnvFile('.env');
+}
 
 function getRequiredEnvironmentVariable(name: string): string {
   const value = process.env[name];
