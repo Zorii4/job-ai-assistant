@@ -16,6 +16,7 @@ const dockerIgnoreEntries = new Set(
     .map((entry) => entry.trim())
     .filter((entry) => entry && !entry.startsWith("#"))
 );
+const caddyfile = readFileSync("Caddyfile", "utf8");
 
 test("public file policy classifies tracked paths and blocks private paths", () => {
   assert.equal(classifyPath("AGENTS.md", rules), "PUBLIC");
@@ -69,4 +70,12 @@ test("Docker build context excludes the local private overlay", () => {
   for (const entry of requiredPrivateEntries) {
     assert.ok(dockerIgnoreEntries.has(entry), `${entry} must be excluded from Docker context`);
   }
+});
+
+test("Caddy routes API requests before the SPA fallback", () => {
+  const apiHandleIndex = caddyfile.indexOf("handle @api {");
+  const spaHandleIndex = caddyfile.indexOf("\n\thandle {");
+
+  assert.ok(apiHandleIndex >= 0, "API routes must use an explicit handle block");
+  assert.ok(spaHandleIndex > apiHandleIndex, "SPA fallback must follow the API handle block");
 });

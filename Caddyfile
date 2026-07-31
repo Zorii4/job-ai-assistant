@@ -1,13 +1,17 @@
 :80 {
-  encode zstd gzip
+	encode zstd gzip
 
-  @api path /health /users* /resumes* /api/auth/*
-  reverse_proxy @api api:3000 {
-    header_up X-Real-IP {remote_host}
-    header_up X-Forwarded-Proto {scheme}
-    header_up X-Forwarded-Host {host}
-  }
+	@api path /health /users* /resumes* /api/auth/*
+	handle @api {
+		reverse_proxy api:3000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
+	}
 
-  try_files {path} /index.html
-  file_server
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
 }
