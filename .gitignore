@@ -9,6 +9,8 @@
 /private/
 /secrets/
 /local/
+# Private normative documents live in /local/internal-docs/. Keep these legacy root
+# paths ignored too, so an accidental copy cannot be staged before the scanner blocks it.
 *.pem
 *.key
 *.p12
@@ -64,6 +66,6 @@ lerna-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 
-AGENTS.md
 SPEC.md
 PROJECT_PLAN.md
+PUBLIC_RELEASE_PLAN.md

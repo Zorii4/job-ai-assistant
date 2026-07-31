@@ -1,13 +1,9 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-const mode = process.argv.includes("--staged") ? "staged" : "all";
-const pathRules = [
-  /^(?:AGENTS|SPEC|PROJECT_PLAN)\.md$/i,
-  /^(?:data|evaluation|private|secrets|local)\//i,
-  /^src\/prompts\//i,
-  /\.(?:pem|key|p12|pfx)$/i,
-  /(?:^|\/)\.env(?:\.(?!example$)[A-Za-z0-9_-]+)?$/i,
-];
+const publicClassifications = new Set(["PUBLIC", "PUBLIC_AFTER_REVIEW"]);
+const privateClassifications = new Set(["PRIVATE", "SECRET", "GENERATED"]);
 const contentRules = [
   { name: "private key", pattern: /-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----/ },
   { name: "OpenAI-like API key", pattern: /\bsk-[A-Za-z0-9_-]{20,}\b/ },
@@ -20,37 +16,91 @@ const contentRules = [
   },
 ];
 
+function globToRegExp(pattern) {
+  const escaped = pattern.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+  return new RegExp(
+    `^${escaped.replaceAll("**", "\u0000").replaceAll("*", "[^/]*").replaceAll("\u0000", ".*")}$`
+  );
+}
+
+export function loadPolicy(policyPath = "public-file-policy.json") {
+  const policy = JSON.parse(readFileSync(policyPath, "utf8"));
+  if (policy.schemaVersion !== 1 || !Array.isArray(policy.rules)) {
+    throw new Error("Public file policy must use schemaVersion 1 and contain rules.");
+  }
+
+  return policy.rules.map((rule) => {
+    if (
+      typeof rule.pattern !== "string" ||
+      typeof rule.classification !== "string" ||
+      (!publicClassifications.has(rule.classification) && !privateClassifications.has(rule.classification))
+    ) {
+      throw new Error("Public file policy contains an invalid rule.");
+    }
+
+    return { ...rule, expression: globToRegExp(rule.pattern) };
+  });
+}
+
+export function classifyPath(filePath, rules) {
+  return rules.find((rule) => rule.expression.test(filePath))?.classification ?? "UNCLASSIFIED";
+}
+
+export function findContentViolation(content) {
+  return contentRules.find((rule) => rule.pattern.test(content))?.name;
+}
+
 function git(args, encoding = "utf8") {
   return execFileSync("git", args, { encoding }).trim();
 }
 
-const paths = (mode === "staged"
-  ? git(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
-  : git(["ls-files"])
-)
-  .split(/\r?\n/)
-  .filter(Boolean);
-
-const violations = [];
-for (const filePath of paths) {
-  if (pathRules.some((rule) => rule.test(filePath))) {
-    violations.push(`${filePath}: запрещённый путь`);
-    continue;
-  }
-
-  const object = mode === "staged" ? `:${filePath}` : `HEAD:${filePath}`;
-  const content = git(["show", object]);
-  for (const rule of contentRules) {
-    if (rule.pattern.test(content)) {
-      violations.push(`${filePath}: ${rule.name}`);
+export function checkFiles({ mode, paths, readContent, rules }) {
+  const violations = [];
+  for (const filePath of paths) {
+    const classification = classifyPath(filePath, rules);
+    if (classification === "UNCLASSIFIED") {
+      violations.push(`${filePath}: отсутствует классификация public-file-policy.json`);
+      continue;
     }
+    if (!publicClassifications.has(classification)) {
+      violations.push(`${filePath}: запрещённая для Git классификация ${classification}`);
+      continue;
+    }
+
+    const contentViolation = findContentViolation(readContent(filePath));
+    if (contentViolation) violations.push(`${filePath}: ${contentViolation}`);
   }
+  return violations;
 }
 
-if (violations.length > 0) {
-  console.error("Проверка публичной безопасности не пройдена:");
-  for (const violation of violations) console.error(`- ${violation}`);
-  process.exit(1);
+function main() {
+  const mode = process.argv.includes("--staged") ? "staged" : "all";
+  const paths = (mode === "staged"
+    ? git(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
+    : git(["ls-files"])
+  )
+    .split(/\r?\n/)
+    .filter(Boolean);
+  const rules = loadPolicy();
+  const objectPrefix = mode === "staged" ? ":" : "HEAD:";
+  const violations = checkFiles({
+    mode,
+    paths,
+    rules,
+    readContent: (filePath) => git(["show", `${objectPrefix}${filePath}`]),
+  });
+
+  if (violations.length > 0) {
+    console.error("Проверка публичной безопасности не пройдена:");
+    for (const violation of violations) console.error(`- ${violation}`);
+    process.exit(1);
+  }
+
+  console.log(
+    `Проверка публичной безопасности пройдена (${mode === "staged" ? "staged" : "tracked"} files).`
+  );
 }
 
-console.log(`Проверка публичной безопасности пройдена (${mode === "staged" ? "staged" : "tracked"} files).`);
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main();
+}
