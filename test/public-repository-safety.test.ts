@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   checkFiles,
@@ -8,6 +9,13 @@ import {
 } from "../scripts/check-public-repository.mjs";
 
 const rules = loadPolicy();
+
+const dockerIgnoreEntries = new Set(
+  readFileSync(".dockerignore", "utf8")
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry && !entry.startsWith("#"))
+);
 
 test("public file policy classifies tracked paths and blocks private paths", () => {
   assert.equal(classifyPath("AGENTS.md", rules), "PUBLIC");
@@ -35,4 +43,30 @@ test("public safety check rejects private and unclassified files", () => {
 test("public safety check detects a secret-shaped value in a public file", () => {
   const violation = findContentViolation(`const key = \"sk-${"a".repeat(20)}\";`);
   assert.equal(violation, "OpenAI-like API key");
+});
+
+test("Docker build context excludes the local private overlay", () => {
+  const requiredPrivateEntries = [
+    ".agents",
+    ".codex",
+    ".hallmark",
+    ".env",
+    ".env.*",
+    "SPEC.md",
+    "PROJECT_PLAN.md",
+    "PUBLIC_RELEASE_PLAN.md",
+    "design.md",
+    "DESIGN.md",
+    "data",
+    "evaluation",
+    "private",
+    "secrets",
+    "local",
+    "src/prompts",
+    "uploads",
+  ];
+
+  for (const entry of requiredPrivateEntries) {
+    assert.ok(dockerIgnoreEntries.has(entry), `${entry} must be excluded from Docker context`);
+  }
 });
