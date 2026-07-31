@@ -17,9 +17,9 @@
 
 Для `master` включить ruleset, запрещающий force push и удаление ветки. Не требовать
 pull request или обязательный review: они не нужны персональному source-visible
-репозиторию без процесса внешних contributions. После первого успешного запуска
-workflow добавить required checks `Public checks / verify` и
-`CodeQL / Analyze JavaScript and TypeScript`.
+репозиторию без процесса внешних contributions. До public visibility добавить only
+`Public checks / verify`. `CodeQL / Analyze JavaScript and TypeScript` добавить после
+первого успешного сканирования в public repository.
 
 Workflow-файлы не получают production secrets и используют только mock mode. Обычный
 pull request не должен выполнять реальный LLM-вызов. Для Actions оставить default
@@ -33,7 +33,8 @@ pull request не должен выполнять реальный LLM-вызо�
 - До смены visibility принимать security reports через `SECURITY.md`; GitHub private
   vulnerability reporting включить сразу после смены visibility, потому что GitHub
   предоставляет эту функцию public repositories.
-- Включить CodeQL для JavaScript/TypeScript.
+- Workflow CodeQL для JavaScript/TypeScript запускает сканирование только после public
+  visibility: private repository на текущем плане не поддерживает code scanning.
 - Запретить доступ forked pull requests к secrets и запретить workflows, которым нужны
   write permissions, запускаться с их кода.
 - Задать хранение Actions logs/artifacts на 60 дней; текущие workflows artifacts не
