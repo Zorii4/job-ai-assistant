@@ -3,6 +3,7 @@ import {
   runInitialAnalysisWorkflow,
   type InitialAnalysisWorkflowState
 } from "../ai/runInitialAnalysisWorkflow.js";
+import { loadInitialWorkflowPromptBundle } from "../ai/initialWorkflowPromptBundle.js";
 import { classifyLlmError } from "../llm/retryTransientRequest.js";
 import type {
   AnalyzeJobApplicationInput,
@@ -68,12 +69,14 @@ async function runAnalyzeJobApplication(
   await persistence.saveMeta(runId, createMeta(createdAt), steps);
 
   try {
+    const prompts = await loadInitialWorkflowPromptBundle();
     const workflowResult = await runInitialAnalysisWorkflow({
       documents: {
         resumeText: input.resumeText,
         vacancyText: input.vacancyText
       },
       config,
+      prompts,
       deadlineAt,
       onProgress: input.onProgress,
       onStepStarted: (stepName) => {

@@ -1,6 +1,5 @@
 import { callLLM } from "../llm/llmClient.js";
 import { createLlmAttemptMetrics } from "../llm/retryTransientRequest.js";
-import { orchestratorSystemPrompt } from "../prompts/orchestrator.prompt.js";
 import type { AnalystResult } from "../contracts/analyst.contract.js";
 import type { AgentExecutionOptions, AgentExecutionResult } from "../types/jobApplication.js";
 
@@ -26,11 +25,12 @@ export type OrchestratorAgentInput = FinalOrchestratorInput;
 
 export async function orchestratorAgent(
   input: OrchestratorAgentInput,
-  options: AgentExecutionOptions
+  options: AgentExecutionOptions,
+  systemPrompt: string
 ): Promise<AgentExecutionResult> {
   const userPrompt = createFinalPrompt(input);
   const llmMetrics = createLlmAttemptMetrics();
-  const output = await callLLM(orchestratorSystemPrompt, userPrompt, {
+  const output = await callLLM(systemPrompt, userPrompt, {
     maxOutputTokens: options.maxOutputTokens,
     timeoutMs: options.timeoutMs,
     metrics: llmMetrics
@@ -39,7 +39,7 @@ export async function orchestratorAgent(
   return {
     output,
     outputText: output,
-    inputChars: orchestratorSystemPrompt.length + userPrompt.length,
+    inputChars: systemPrompt.length + userPrompt.length,
     outputChars: output.length,
     attemptCount: llmMetrics.attemptCount,
     retryErrorCodes: llmMetrics.retryErrorCodes

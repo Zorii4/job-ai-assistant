@@ -1,7 +1,6 @@
 import { callLLMJson } from "../llm/llmClient.js";
 import { retryStructuredResponse } from "../llm/retryStructuredResponse.js";
 import { createLlmAttemptMetrics } from "../llm/retryTransientRequest.js";
-import { criticSystemPrompt } from "../prompts/critic.prompt.js";
 import type { AnalystResult } from "../contracts/analyst.contract.js";
 import { criticResultSchema, type CriticResult } from "../contracts/critic.contract.js";
 import type { AgentExecutionOptions, AgentExecutionResult, JobApplicationDocuments } from "../types/jobApplication.js";
@@ -19,7 +18,8 @@ export async function criticAgent(
   analystResult: AnalystResult,
   producerOutput: string,
   producerVersion: number,
-  options: AgentExecutionOptions
+  options: AgentExecutionOptions,
+  systemPrompt: string
 ): Promise<AgentExecutionResult<CriticResult>> {
   const userPrompt = `
 Producer version:
@@ -52,8 +52,8 @@ ${producerOutput}
         }
       );
   const response = await retryStructuredResponse(
-    () => callCritic(criticSystemPrompt),
-    () => callCritic(`${criticSystemPrompt}\n\n${criticRecoveryInstruction}`),
+    () => callCritic(systemPrompt),
+    () => callCritic(`${systemPrompt}\n\n${criticRecoveryInstruction}`),
     ({ phase, errorCode }) => {
       llmMetrics.retryErrorCodes.push(errorCode);
       console.warn(`[critic] technical ${phase} after ${errorCode}`);
@@ -64,7 +64,7 @@ ${producerOutput}
   return {
     output: response.data,
     outputText,
-    inputChars: criticSystemPrompt.length + userPrompt.length,
+    inputChars: systemPrompt.length + userPrompt.length,
     outputChars: response.raw.length,
     attemptCount: llmMetrics.attemptCount,
     retryErrorCodes: llmMetrics.retryErrorCodes

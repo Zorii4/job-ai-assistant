@@ -2,6 +2,7 @@ import { analystAgent } from "../agents/analyst.agent.js";
 import { criticAgent } from "../agents/critic.agent.js";
 import { orchestratorAgent } from "../agents/orchestrator.agent.js";
 import { producerAgent } from "../agents/producer.agent.js";
+import type { InitialWorkflowPromptBundle } from "./initialWorkflowPromptBundle.js";
 import type { AnalystResult } from "../contracts/analyst.contract.js";
 import type { CriticResult } from "../contracts/critic.contract.js";
 import type {
@@ -32,6 +33,7 @@ export type InitialAnalysisWorkflowState = {
 export type InitialAnalysisWorkflowInput = {
   documents: JobApplicationDocuments;
   config: InitialAnalysisWorkflowConfig;
+  prompts: InitialWorkflowPromptBundle;
   deadlineAt: number;
   onProgress?: AnalyzeJobApplicationProgressReporter;
   onStepStarted?: (stepName: JobApplicationAgentName) => Promise<void> | void;
@@ -61,7 +63,7 @@ export function getInitialAnalysisWorkflowConfig(): InitialAnalysisWorkflowConfi
 export async function runInitialAnalysisWorkflow(
   input: InitialAnalysisWorkflowInput
 ): Promise<InitialAnalysisWorkflowResult> {
-  const { config, deadlineAt, documents } = input;
+  const { config, deadlineAt, documents, prompts } = input;
   let latestProducerOutput = "";
   let latestCriticResult: CriticResult | undefined;
   let finalDecision: CriticDecision = "UNKNOWN";
@@ -88,7 +90,7 @@ export async function runInitialAnalysisWorkflow(
   await beginStep("analyst", analystStepName);
   const analystResult = await runStep(
     analystStepName,
-    () => analystAgent(documents, createStepOptions(analystStepName, config, deadlineAt)),
+    () => analystAgent(documents, createStepOptions(analystStepName, config, deadlineAt), prompts.analyst),
     input.onStepCompleted
   );
 
@@ -111,6 +113,7 @@ export async function runInitialAnalysisWorkflow(
           documents,
           analystResult,
           createStepOptions(producerStepName, config, deadlineAt),
+          prompts.producer,
           latestProducerOutput || undefined,
           latestCriticResult
         ),
@@ -127,7 +130,8 @@ export async function runInitialAnalysisWorkflow(
           analystResult,
           latestProducerOutput,
           cycle,
-          createStepOptions(criticStepName, config, deadlineAt)
+          createStepOptions(criticStepName, config, deadlineAt),
+          prompts.critic
         ),
       input.onStepCompleted
     );
@@ -165,7 +169,8 @@ export async function runInitialAnalysisWorkflow(
           analystResult,
           latestProducerOutput
         },
-        createStepOptions(finalStepName, config, deadlineAt)
+        createStepOptions(finalStepName, config, deadlineAt),
+        prompts.orchestrator
       ),
     input.onStepCompleted
   );
