@@ -1,0 +1,35 @@
+name: Public checks
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      LLM_MOCK: "true"
+      POSTGRES_DB: ci_db
+      POSTGRES_USER: ci_user
+      POSTGRES_PASSWORD: ci_password
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      BETTER_AUTH_SECRET: ci-only-secret-that-is-long-enough-for-validation
+      PUBLIC_ORIGIN: http://localhost
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run check:public-safety
+      - run: npm run build
+      - run: npm test
+      - run: npm run prisma:validate

@@ -45,6 +45,7 @@
     { "pattern": "**/*.p12", "classification": "SECRET" },
     { "pattern": "**/*.pfx", "classification": "SECRET" },
     { "pattern": ".dockerignore", "classification": "PUBLIC" },
+    { "pattern": ".github/**", "classification": "PUBLIC" },
     { "pattern": ".githooks/**", "classification": "PUBLIC" },
     { "pattern": ".gitignore", "classification": "PUBLIC" },
     { "pattern": "Caddyfile", "classification": "PUBLIC" },
