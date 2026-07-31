@@ -17,8 +17,10 @@
 
 Для `master` включить ruleset, запрещающий force push и удаление ветки. Не требовать
 pull request или обязательный review: они не нужны персональному source-visible
-репозиторию без процесса внешних contributions. До public visibility добавить only
-`Public checks / verify`. `CodeQL / Analyze JavaScript and TypeScript` добавить после
+репозиторию без процесса внешних contributions. GitHub Free не применяет rulesets к
+private personal repository: не повышать тариф и не добавлять фиктивные required
+checks. После public visibility проверить enforcement, добавить
+`Public checks / verify`, а `CodeQL / Analyze JavaScript and TypeScript` — после
 первого успешного сканирования в public repository.
 
 Workflow-файлы не получают production secrets и используют только mock mode. Обычный
