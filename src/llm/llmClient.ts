@@ -28,6 +28,31 @@ export type CallLLMJsonResult<T> = {
   raw: string;
 };
 
+export class StructuredResponseValidationError extends Error {
+  readonly code = "LLM_RESPONSE_INVALID";
+
+  constructor(
+    readonly contractName: string,
+    readonly issues: readonly string[]
+  ) {
+    super(`LLM returned an invalid ${contractName} response.`);
+    this.name = "StructuredResponseValidationError";
+  }
+}
+
+class LlmEmptyResponseError extends Error {
+  constructor(readonly diagnostics: string) {
+    super("LLM returned an empty response.");
+    this.name = "LlmEmptyResponseError";
+  }
+}
+
+const jsonOnlyOutputInstruction = `
+# Required output format
+
+Return exactly one complete, valid JSON object. Do not include Markdown fences, commentary, reasoning, or any text before or after the JSON object.
+`.trim();
+
 export async function callLLM(
   systemPrompt: string,
   userPrompt: string,
@@ -83,10 +108,25 @@ export async function callLLM(
           }
         );
 
-        const content = response.choices[0]?.message.content?.trim();
+        const choice = response.choices[0];
+        const content = choice?.message.content?.trim();
 
         if (!content) {
-          throw new Error("LLM returned an empty response.");
+          const message = choice?.message as {
+            reasoning?: unknown;
+            reasoning_content?: unknown;
+          } | undefined;
+          const reasoning =
+            typeof message?.reasoning_content === "string"
+              ? message.reasoning_content
+              : typeof message?.reasoning === "string"
+                ? message.reasoning
+                : "";
+          const finishReason = choice?.finish_reason ?? "unknown";
+
+          throw new LlmEmptyResponseError(
+            `finish_reason=${finishReason}; content_chars=0; reasoning_chars=${reasoning.length}`
+          );
         }
 
         return content;
@@ -120,16 +160,37 @@ export async function callLLMJson<T>(
   contractName: string,
   options: CallLLMOptions = {}
 ): Promise<CallLLMJsonResult<T>> {
-  const raw = await callLLM(systemPrompt, userPrompt, options);
-  const jsonText = extractFirstJsonObject(raw);
+  let raw: string;
+
+  try {
+    raw = await callLLM(
+      `${systemPrompt}\n\n${jsonOnlyOutputInstruction}`,
+      userPrompt,
+      { ...options, jsonMode: true }
+    );
+  } catch (error) {
+    if (error instanceof LlmEmptyResponseError) {
+      throw new StructuredResponseValidationError(contractName, [
+        `root: provider returned empty content (${error.diagnostics})`
+      ]);
+    }
+
+    throw error;
+  }
+  let jsonText: string;
+
+  try {
+    jsonText = extractFirstJsonObject(raw);
+  } catch {
+    throw new StructuredResponseValidationError(contractName, ["root: JSON object is missing or incomplete"]);
+  }
 
   let value: unknown;
 
   try {
     value = JSON.parse(jsonText);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`LLM returned invalid JSON for ${contractName}: ${message}`);
+  } catch {
+    throw new StructuredResponseValidationError(contractName, ["root: invalid JSON"]);
   }
 
   const result = schema.safeParse(value);
@@ -137,10 +198,9 @@ export async function callLLMJson<T>(
   if (!result.success) {
     const issues = result.error.issues
       .slice(0, 8)
-      .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`)
-      .join("; ");
+      .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`);
 
-    throw new Error(`LLM returned an invalid ${contractName} contract: ${issues}`);
+    throw new StructuredResponseValidationError(contractName, issues);
   }
 
   return {

@@ -5,13 +5,19 @@ import { API_SCHEMA_VERSION } from '@job-ai-assistant/contracts';
 
 import {
   ApiRequestError,
+  createTextApplicationCase,
   createTextResume,
+  getArtifacts,
+  getInitialAnalysisStatus,
+  getInitialAnalysisResult,
   getApiHealth,
   getCurrentUser,
   getResumes,
   requestPasswordReset,
   signInWithPassword,
   signOut,
+  updateArtifact,
+  resetArtifactToGeneratedContent,
 } from '../src/api.js';
 
 test('accepts a valid API healthcheck response', async (t) => {
@@ -153,6 +159,88 @@ test('creates a text resume through an authenticated request', async (t) => {
   });
 
   assert.equal(resume.id, 'resume_1');
+});
+
+test('creates a vacancy and polls its analysis using the authenticated API', async (t) => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ input: RequestInfo | URL; init: RequestInit | undefined }> = [];
+
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  globalThis.fetch = async (input, init) => {
+    requests.push({ input, init });
+
+    if (requests.length === 1) {
+      return Response.json({
+        schemaVersion: API_SCHEMA_VERSION,
+        applicationCase: {
+          id: 'application_1', title: 'Backend developer', resumeId: 'resume_1', vacancySourceType: 'TEXT',
+          status: 'DRAFT', currentStage: 'DRAFT', createdAt: '2026-08-03T18:00:00.000Z', updatedAt: '2026-08-03T18:00:00.000Z',
+        },
+      });
+    }
+
+    return Response.json({
+      schemaVersion: API_SCHEMA_VERSION,
+      analysisRun: {
+        id: 'run_1', applicationCaseId: 'application_1', workflowType: 'INITIAL_ANALYSIS', status: 'RUNNING',
+        currentStage: 'producer', errorCode: null, createdAt: '2026-08-03T18:00:00.000Z', updatedAt: '2026-08-03T18:00:01.000Z',
+      },
+    });
+  };
+
+  const applicationCase = await createTextApplicationCase('http://api.test', {
+    title: 'Backend developer', resumeId: 'resume_1', vacancyText: 'Node.js developer',
+  });
+  const run = await getInitialAnalysisStatus('http://api.test', applicationCase.id, 'run_1');
+
+  assert.equal(requests[0]?.input, 'http://api.test/applications');
+  assert.equal(requests[0]?.init?.method, 'POST');
+  assert.equal(requests[0]?.init?.credentials, 'include');
+  assert.equal(requests[1]?.input, 'http://api.test/applications/application_1/analysis/run_1');
+  assert.equal(run.currentStage, 'producer');
+});
+
+test('reads the completed markdown result from the owner-only endpoint', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  globalThis.fetch = async (input, init) => {
+    assert.equal(input, 'http://api.test/applications/application_1/analysis/run_1/result');
+    assert.equal(init?.credentials, 'include');
+    return Response.json({
+      schemaVersion: API_SCHEMA_VERSION,
+      analysisResult: { id: 'run_1', applicationCaseId: 'application_1', finalMarkdown: '# Готово' },
+    });
+  };
+
+  assert.equal(await getInitialAnalysisResult('http://api.test', 'application_1', 'run_1'), '# Готово');
+});
+
+test('reads, saves and resets an analysis material with session cookies', async (t) => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ input: RequestInfo | URL; init: RequestInit | undefined }> = [];
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const artifact = {
+    id: 'artifact_1', applicationCaseId: 'application_1', type: 'COVER_LETTER', generatedContent: 'AI version', editedContent: null,
+    updatedAt: '2026-08-03T18:00:00.000Z',
+  };
+  globalThis.fetch = async (input, init) => {
+    requests.push({ input, init });
+    if (requests.length === 1) return Response.json({ schemaVersion: API_SCHEMA_VERSION, artifacts: [artifact] });
+    return Response.json({ schemaVersion: API_SCHEMA_VERSION, artifact: { ...artifact, editedContent: requests.length === 2 ? 'Edited version' : null } });
+  };
+
+  assert.equal((await getArtifacts('http://api.test', 'application_1'))[0]?.id, 'artifact_1');
+  assert.equal((await updateArtifact('http://api.test', 'application_1', 'artifact_1', 'Edited version')).editedContent, 'Edited version');
+  assert.equal((await resetArtifactToGeneratedContent('http://api.test', 'application_1', 'artifact_1')).editedContent, null);
+  assert.equal(requests[1]?.init?.method, 'PATCH');
+  assert.equal(requests[1]?.init?.body, JSON.stringify({ editedContent: 'Edited version' }));
+  assert.equal(requests[2]?.init?.method, 'DELETE');
+  assert.equal(requests.every((request) => request.init?.credentials === 'include'), true);
 });
 
 test('signs in through the Better Auth endpoint with cookies enabled', async (t) => {

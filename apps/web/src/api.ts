@@ -1,5 +1,13 @@
 import {
   ApiErrorResponseSchema,
+  ApplicationCaseResponseSchema,
+  AnalysisRunResponseSchema,
+  ArtifactListResponseSchema,
+  ArtifactResponseSchema,
+  InitialAnalysisResultResponseSchema,
+  type ApplicationCaseSummary,
+  type AnalysisRunSummary,
+  type ArtifactSummary,
   type ApiErrorResponse,
   HealthResponseSchema,
   type HealthResponse as ApiHealth,
@@ -217,6 +225,148 @@ export async function deleteResume(baseUrl: string, resumeId: string): Promise<v
       message: 'Сервис временно недоступен. Повторите попытку позже.',
     });
   }
+}
+
+export async function createTextApplicationCase(
+  baseUrl: string,
+  input: { title: string; resumeId: string; vacancyText: string },
+): Promise<ApplicationCaseSummary> {
+  const response = await fetch(`${baseUrl}/applications`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+
+  const payload = await parseResponse(
+    response,
+    ApplicationCaseResponseSchema,
+    'API returned an invalid vacancy response.',
+  );
+
+  return payload.applicationCase;
+}
+
+export async function createFileApplicationCase(
+  baseUrl: string,
+  input: { title: string; resumeId: string; file: File },
+): Promise<ApplicationCaseSummary> {
+  const formData = new FormData();
+  formData.set('title', input.title);
+  formData.set('resumeId', input.resumeId);
+  formData.set('file', input.file);
+
+  const response = await fetch(`${baseUrl}/applications/file`, {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  });
+
+  const payload = await parseResponse(
+    response,
+    ApplicationCaseResponseSchema,
+    'API returned an invalid vacancy response.',
+  );
+
+  return payload.applicationCase;
+}
+
+export async function launchInitialAnalysis(
+  baseUrl: string,
+  applicationCaseId: string,
+): Promise<AnalysisRunSummary> {
+  const response = await fetch(`${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}/analysis`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+
+  const payload = await parseResponse(
+    response,
+    AnalysisRunResponseSchema,
+    'API returned an invalid analysis run response.',
+  );
+
+  return payload.analysisRun;
+}
+
+export async function getInitialAnalysisStatus(
+  baseUrl: string,
+  applicationCaseId: string,
+  analysisRunId: string,
+): Promise<AnalysisRunSummary> {
+  const response = await fetch(
+    `${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}/analysis/${encodeURIComponent(analysisRunId)}`,
+    { credentials: 'include' },
+  );
+
+  const payload = await parseResponse(
+    response,
+    AnalysisRunResponseSchema,
+    'API returned an invalid analysis status response.',
+  );
+
+  return payload.analysisRun;
+}
+
+export async function getInitialAnalysisResult(
+  baseUrl: string,
+  applicationCaseId: string,
+  analysisRunId: string,
+): Promise<string> {
+  const response = await fetch(
+    `${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}/analysis/${encodeURIComponent(analysisRunId)}/result`,
+    { credentials: 'include' },
+  );
+
+  const payload = await parseResponse(
+    response,
+    InitialAnalysisResultResponseSchema,
+    'API returned an invalid analysis result response.',
+  );
+
+  return payload.analysisResult.finalMarkdown;
+}
+
+export async function getArtifacts(baseUrl: string, applicationCaseId: string): Promise<ArtifactSummary[]> {
+  const response = await fetch(
+    `${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}/artifacts`,
+    { credentials: 'include' },
+  );
+  const payload = await parseResponse(response, ArtifactListResponseSchema, 'API returned an invalid materials response.');
+
+  return payload.artifacts;
+}
+
+export async function updateArtifact(
+  baseUrl: string,
+  applicationCaseId: string,
+  artifactId: string,
+  editedContent: string,
+): Promise<ArtifactSummary> {
+  const response = await fetch(
+    `${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}/artifacts/${encodeURIComponent(artifactId)}`,
+    {
+      method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ editedContent }),
+    },
+  );
+  const payload = await parseResponse(response, ArtifactResponseSchema, 'API returned an invalid material response.');
+
+  return payload.artifact;
+}
+
+export async function resetArtifactToGeneratedContent(
+  baseUrl: string,
+  applicationCaseId: string,
+  artifactId: string,
+): Promise<ArtifactSummary> {
+  const response = await fetch(
+    `${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}/artifacts/${encodeURIComponent(artifactId)}/edited-content`,
+    { method: 'DELETE', credentials: 'include' },
+  );
+  const payload = await parseResponse(response, ArtifactResponseSchema, 'API returned an invalid material response.');
+
+  return payload.artifact;
 }
 
 async function parseResponse<T>(

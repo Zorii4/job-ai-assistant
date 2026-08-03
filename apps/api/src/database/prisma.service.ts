@@ -14,7 +14,7 @@ function getRequiredEnvironmentVariable(name: string): string {
   return value;
 }
 
-function getDatabaseUrl(): string {
+export function getDatabaseUrl(): string {
   const user = getRequiredEnvironmentVariable('POSTGRES_USER');
   const password = getRequiredEnvironmentVariable('POSTGRES_PASSWORD');
   const database = getRequiredEnvironmentVariable('POSTGRES_DB');

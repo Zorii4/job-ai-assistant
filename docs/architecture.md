@@ -15,6 +15,8 @@ React + Vite web
 NestJS API ----> PostgreSQL / Prisma
         |
         +--> Better Auth server sessions
+        |
+        +--> PgBoss <---- worker
 
 Legacy adapters (CLI, Telegram)
         |
@@ -31,12 +33,14 @@ Initial AI workflow
 ### Web и API
 
 - `apps/web` — React + Vite frontend. Текущая UI-реализация покрывает библиотеку
-  резюме и preview обезличенной версии.
+  резюме, preview обезличенной версии, создание вакансии и polling initial-analysis run.
 - `apps/api` — NestJS API. В нём реализованы healthcheck, server-side session
-  guard и endpoints библиотеки резюме.
+  guard, endpoints библиотеки резюме и создание текстового черновика вакансии.
 - `packages/contracts` — shared Zod runtime contracts для public API.
 - `prisma` — PostgreSQL schema и миграции.
-- `compose.yaml` — локальный стек web, API и PostgreSQL за одним origin.
+- `apps/worker` — отдельный PgBoss consumer. Он получает только IDs, загружает
+  snapshots из PostgreSQL и выполняет initial workflow без HTTP-сервера.
+- `compose.yaml` — локальный стек web, API, worker и PostgreSQL за одним origin.
 
 ### Initial AI core и legacy adapters
 
@@ -100,7 +104,7 @@ MD и TXT с проверкой размера, MIME и расширения; in
 apps/
   web
   api
-  worker              # target
+  worker
   telegram            # target adapter boundary
 
 packages/
@@ -121,16 +125,30 @@ API validates input, ownership and quota
   -> web polls or receives server-sent events
 ```
 
-Worker, queue, `ApplicationCase`, `AnalysisRun`, artifacts, quota reservation,
-polling/SSE и Markdown-result в web пока не реализованы. Они не должны обходить
-границы privacy, ownership или initial workflow.
+`ApplicationCase` частично реализован: API создаёт черновик из текста или
+PDF/MD/TXT после проверки владения подтверждённым резюме и сохраняет snapshot его
+`sanitizedText`. `AnalysisRun` уже имеет отдельную персистентную модель со
+статусами lifecycle. После server-side проверки владения API создаёт один
+initial-analysis run и ставит в PgBoss только ID вакансии и run. Worker atomically
+claim'ит run, загружает snapshots из PostgreSQL, сохраняет этапы и finalMarkdown,
+а при retry или ошибке записывает только технический code без raw error. Защищённый
+polling endpoint возвращает владельцу статусы, этапы и технический code. Отдельный
+endpoint результата отдаёт `finalMarkdown` только после успешного run и только его
+владельцу. Web делает polling, безопасно отображает базовые Markdown-блоки без HTML
+инъекций и сохраняет полный текст отчёта при незнакомой разметке. При известных разделах
+worker создаёт idempotent Artifacts; API отдаёт их только владельцу вакансии и сохраняет
+пользовательскую редакцию отдельно от AI-версии. Web показывает известные материалы,
+автосохраняет ручную редакцию и по явному подтверждению возвращает AI-версию. Перед запуском
+initial analysis API атомарно резервирует одну из десяти lifetime-единиц ALPHA и возвращает её
+при технической ошибке очереди или окончательной ошибке worker.
+Эти компоненты не должны обходить границы privacy, ownership или initial workflow.
 
 ## Архитектурные инварианты
 
 - Один пользовательский запрос не получает доступ к сущности другого пользователя.
-- Source resume text не должен попадать в LLM; будущий workflow использует только
+- Source resume text не должен попадать в LLM; initial workflow использует только
   подтверждённую обезличенную версию или её snapshot.
-- Очередь будущего worker получает identifiers, а не полные пользовательские тексты.
+- Очередь worker получает identifiers, а не полные пользовательские тексты.
 - `generatedContent` и пользовательская редакция будущих материалов хранятся
   раздельно.
 - Initial workflow сохраняет порядок агентов и ограниченное число revision.

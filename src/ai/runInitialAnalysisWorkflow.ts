@@ -1,5 +1,6 @@
 import { analystAgent } from "../agents/analyst.agent.js";
 import { criticAgent } from "../agents/critic.agent.js";
+import { StructuredResponseValidationError } from "../llm/llmClient.js";
 import { orchestratorAgent } from "../agents/orchestrator.agent.js";
 import { producerAgent } from "../agents/producer.agent.js";
 import type { InitialWorkflowPromptBundle } from "./initialWorkflowPromptBundle.js";
@@ -190,7 +191,19 @@ async function runStep<TOutput>(
   console.log(logMessage ?? `[app] starting ${agentName.replace(".", " ")}`);
   const startedAt = new Date().toISOString();
   const startedAtMs = Date.now();
-  const result = await execute();
+  let result: AgentExecutionResult<TOutput>;
+
+  try {
+    result = await execute();
+  } catch (error) {
+    if (error instanceof StructuredResponseValidationError) {
+      console.warn(
+        `[app] failed ${agentName}: ${error.code} (${error.contractName}: ${error.issues.join("; ")})`
+      );
+    }
+
+    throw error;
+  }
   const finishedAt = new Date().toISOString();
   const durationMs = Date.now() - startedAtMs;
   const step: JobApplicationStep = {

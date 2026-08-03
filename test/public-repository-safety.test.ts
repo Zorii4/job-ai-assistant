@@ -17,6 +17,7 @@ const dockerIgnoreEntries = new Set(
     .filter((entry) => entry && !entry.startsWith("#"))
 );
 const caddyfile = readFileSync("Caddyfile", "utf8");
+const composeFile = readFileSync("compose.yaml", "utf8");
 
 test("public file policy classifies tracked paths and blocks private paths", () => {
   assert.equal(classifyPath("AGENTS.md", rules), "PUBLIC");
@@ -78,4 +79,16 @@ test("Caddy routes API requests before the SPA fallback", () => {
 
   assert.ok(apiHandleIndex >= 0, "API routes must use an explicit handle block");
   assert.ok(spaHandleIndex > apiHandleIndex, "SPA fallback must follow the API handle block");
+});
+
+test("worker receives configured LLM output limits", () => {
+  for (const variable of [
+    "LLM_MAX_OUTPUT_TOKENS_ANALYST",
+    "LLM_MAX_OUTPUT_TOKENS_PRODUCER",
+    "LLM_MAX_OUTPUT_TOKENS_CRITIC",
+    "LLM_MAX_OUTPUT_TOKENS_ORCHESTRATOR_FINAL"
+  ]) {
+    const expected = `${variable}: $` + `{${variable}:-}`;
+    assert.ok(composeFile.includes(expected), `${variable} must be passed to worker`);
+  }
 });

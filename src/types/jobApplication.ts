@@ -1,4 +1,4 @@
-export type AnalyzeJobApplicationSource = "cli" | "telegram";
+export type AnalyzeJobApplicationSource = "cli" | "telegram" | "web";
 
 export type AnalyzeJobApplicationInput = {
   resumeText: string;

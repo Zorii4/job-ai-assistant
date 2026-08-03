@@ -12,6 +12,7 @@ import {
   ApiErrorResponseSchema,
   type ApiErrorResponse,
 } from '@job-ai-assistant/contracts';
+import { AnalysisQuotaExceededException } from '../applications/analysis-quota-exceeded.exception.js';
 
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
@@ -22,11 +23,11 @@ export class ApiExceptionFilter implements ExceptionFilter {
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    response.status(status).json(createErrorResponse(status));
+    response.status(status).json(createErrorResponse(status, exception));
   }
 }
 
-function createErrorResponse(status: number): ApiErrorResponse {
+function createErrorResponse(status: number, exception: unknown): ApiErrorResponse {
   const error =
     status === HttpStatus.BAD_REQUEST
       ? { code: 'BAD_REQUEST' as const, message: 'Некорректный запрос.' }
@@ -37,8 +38,12 @@ function createErrorResponse(status: number): ApiErrorResponse {
           }
         : status === HttpStatus.TOO_MANY_REQUESTS
           ? {
-              code: 'RESUME_LIMIT_REACHED' as const,
-              message: 'Можно сохранить не более пяти резюме.',
+              code: exception instanceof AnalysisQuotaExceededException
+                ? 'ANALYSIS_QUOTA_EXCEEDED' as const
+                : 'RESUME_LIMIT_REACHED' as const,
+              message: exception instanceof AnalysisQuotaExceededException
+                ? 'Лимит из десяти анализов исчерпан.'
+                : 'Можно сохранить не более пяти резюме.',
             }
       : status === HttpStatus.UNAUTHORIZED
         ? {

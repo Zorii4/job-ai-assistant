@@ -17,9 +17,11 @@ model User {
   updatedAt     DateTime  @updatedAt
   inviteId      String    @unique
   planCode      PlanCode  @default(ALPHA)
+  initialAnalysisUnitsUsed Int @default(0)
   accounts      Account[]
   sessions      Session[]
   resumes       Resume[]
+  applicationCases ApplicationCase[]
   invite        Invite    @relation(fields: [inviteId], references: [id], onDelete: Restrict)
 
   @@map("user")
@@ -54,10 +56,107 @@ model Resume {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationCases    ApplicationCase[]
 
   @@index([userId, updatedAt])
   @@unique([userId, slot])
   @@map("resume")
+}
+
+enum VacancySourceType {
+  TEXT
+  FILE
+}
+
+enum ApplicationCaseStatus {
+  DRAFT
+  ANALYZING
+  ANALYSIS_READY
+  FAILED
+}
+
+model ApplicationCase {
+  id                   String                @id @default(cuid())
+  userId               String
+  resumeId             String
+  title                String
+  vacancySourceType    VacancySourceType
+  vacancySourceFileName String?
+  vacancySourceText    String
+  vacancySanitizedText String
+  resumeSanitizedText  String
+  status               ApplicationCaseStatus @default(DRAFT)
+  currentStage         String                @default("DRAFT")
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resume               Resume                @relation(fields: [resumeId], references: [id], onDelete: Restrict)
+  analysisRuns         AnalysisRun[]
+  artifacts            Artifact[]
+
+  @@index([userId, updatedAt])
+  @@index([resumeId])
+  @@map("application_case")
+}
+
+enum AnalysisWorkflowType {
+  INITIAL_ANALYSIS
+}
+
+enum AnalysisRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum ArtifactType {
+  RESUME_RECOMMENDATIONS
+  COVER_LETTER
+  RECRUITER_MESSAGE
+  FOLLOW_UP
+}
+
+model AnalysisRun {
+  id                String               @id @default(cuid())
+  applicationCaseId String
+  workflowType      AnalysisWorkflowType
+  status            AnalysisRunStatus    @default(QUEUED)
+  currentStage      String?
+  model             String?
+  promptVersion     String?
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  errorCode         String?
+  errorMessageSanitized String?
+  queueJobId        String?              @unique
+  finalMarkdown     String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  applicationCase   ApplicationCase      @relation(fields: [applicationCaseId], references: [id], onDelete: Cascade)
+  artifacts         Artifact[]
+
+  @@index([applicationCaseId, createdAt])
+  @@index([status, createdAt])
+  @@unique([applicationCaseId, workflowType])
+  @@map("analysis_run")
+}
+
+model Artifact {
+  id                String       @id @default(cuid())
+  applicationCaseId String
+  type              ArtifactType
+  generatedContent  String
+  editedContent     String?
+  sourceRunId       String
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  applicationCase   ApplicationCase @relation(fields: [applicationCaseId], references: [id], onDelete: Cascade)
+  sourceRun         AnalysisRun  @relation(fields: [sourceRunId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationCaseId, type])
+  @@index([sourceRunId])
+  @@map("artifact")
 }
 
 model Invite {

@@ -10,11 +10,12 @@
   "scripts": {
     "analyze": "tsx src/cli/analyzeFromDataFolder.ts",
     "bot": "tsx src/telegram/bot.ts",
-    "build": "npm run build:legacy && npm run build:contracts && npm run build:api && npm run build:web",
+    "build": "npm run build:legacy && npm run build:contracts && npm run build:api && npm run build:worker && npm run build:web",
     "build:api": "npm run build --workspace @job-ai-assistant/api",
     "build:contracts": "npm run build --workspace @job-ai-assistant/contracts",
     "build:legacy": "tsc",
     "build:web": "npm run build --workspace @job-ai-assistant/web",
+    "build:worker": "npm run build --workspace @job-ai-assistant/worker",
     "check:public-safety": "node scripts/check-public-repository.mjs --all",
     "dev:api": "npm run build:contracts && npm run dev --workspace @job-ai-assistant/api",
     "dev:web": "npm run build:contracts && npm run dev --workspace @job-ai-assistant/web",
@@ -27,11 +28,13 @@
     "prisma:status": "prisma migrate status",
     "prisma:validate": "prisma validate",
     "start:api": "npm run start --workspace @job-ai-assistant/api",
-    "test": "npm run test:legacy && npm run test:contracts && npm run build:contracts && npm run test:api && npm run test:web",
+    "start:worker": "npm run start --workspace @job-ai-assistant/worker",
+    "test": "npm run test:legacy && npm run test:contracts && npm run build:contracts && npm run test:api && npm run test:worker && npm run test:web",
     "test:api": "npm run test --workspace @job-ai-assistant/api",
     "test:contracts": "npm run test --workspace @job-ai-assistant/contracts",
     "test:legacy": "node --import tsx --test test/**/*.test.ts",
     "test:web": "npm run test --workspace @job-ai-assistant/web",
+    "test:worker": "npm run test --workspace @job-ai-assistant/worker",
     "start": "node dist/main.js"
   },
   "dependencies": {

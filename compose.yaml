@@ -57,5 +57,39 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  worker:
+    build:
+      context: .
+      target: api
+    command: >-
+      sh -c "npm run prisma:migrate:deploy && npm run start:worker"
+    environment:
+      NODE_ENV: production
+      POSTGRES_DB: ${POSTGRES_DB:-job_ai_assistant}
+      POSTGRES_USER: ${POSTGRES_USER:-job_ai_assistant}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_MOCK: ${LLM_MOCK:-}
+      ANALYSIS_MODE: ${ANALYSIS_MODE:-}
+      MAX_REVISION_CYCLES: ${MAX_REVISION_CYCLES:-}
+      LLM_STEP_TIMEOUT_MS: ${LLM_STEP_TIMEOUT_MS:-}
+      ANALYSIS_TOTAL_TIMEOUT_MS: ${ANALYSIS_TOTAL_TIMEOUT_MS:-}
+      LLM_MAX_OUTPUT_TOKENS_ANALYST: ${LLM_MAX_OUTPUT_TOKENS_ANALYST:-}
+      LLM_MAX_OUTPUT_TOKENS_PRODUCER: ${LLM_MAX_OUTPUT_TOKENS_PRODUCER:-}
+      LLM_MAX_OUTPUT_TOKENS_CRITIC: ${LLM_MAX_OUTPUT_TOKENS_CRITIC:-}
+      LLM_MAX_OUTPUT_TOKENS_ORCHESTRATOR_FINAL: ${LLM_MAX_OUTPUT_TOKENS_ORCHESTRATOR_FINAL:-}
+    volumes:
+      # Local-only private prompt overlay. The compiled files are produced by
+      # `npm run build:legacy` and are never copied into the Docker image.
+      - ./dist/prompts:/workspace/dist/prompts:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres-data:

@@ -3,12 +3,17 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ApiRequestError,
   confirmResume,
+  createFileApplicationCase,
   createFileResume,
+  createTextApplicationCase,
   createTextResume,
   deleteResume,
   getApiBaseUrl,
   getApiHealth,
   getCurrentUser,
+  getInitialAnalysisResult,
+  getInitialAnalysisStatus,
+  getArtifacts,
   getResume,
   getResumes,
   requestPasswordReset,
@@ -17,14 +22,18 @@ import {
   signInWithPassword,
   signOut,
   signUpWithInvite,
+  launchInitialAnalysis,
+  resetArtifactToGeneratedContent,
+  updateArtifact,
   updateSanitizedResume,
 } from './api';
 import type { CurrentUser } from './api';
-import type { ResumeDetail, ResumeSummary } from '@job-ai-assistant/contracts';
+import type { AnalysisRunSummary, ArtifactSummary, ResumeDetail, ResumeSummary } from '@job-ai-assistant/contracts';
 
 type ApiState = 'loading' | 'ready' | 'error';
 type ResumeState = 'loading' | 'ready' | 'error';
 type SourceMode = 'text' | 'file';
+type VacancySourceMode = 'text' | 'file';
 type AuthView = 'sign-in' | 'sign-up' | 'verify-email' | 'recovery' | 'reset-password';
 
 export function App() {
@@ -109,6 +118,20 @@ function ResumeLibrary({
   const [previewState, setPreviewState] = useState<ResumeState>('ready');
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
   const [isSavingPreview, setIsSavingPreview] = useState(false);
+  const [vacancySourceMode, setVacancySourceMode] = useState<VacancySourceMode>('text');
+  const [vacancyTitle, setVacancyTitle] = useState('');
+  const [vacancyText, setVacancyText] = useState('');
+  const [vacancyFile, setVacancyFile] = useState<File | null>(null);
+  const [selectedVacancyResumeId, setSelectedVacancyResumeId] = useState('');
+  const [vacancyError, setVacancyError] = useState<string | null>(null);
+  const [vacancyMessage, setVacancyMessage] = useState<string | null>(null);
+  const [isSubmittingVacancy, setIsSubmittingVacancy] = useState(false);
+  const [analysisRun, setAnalysisRun] = useState<AnalysisRunSummary | null>(null);
+  const [analysisMarkdown, setAnalysisMarkdown] = useState<string | null>(null);
+  const [analysisResultError, setAnalysisResultError] = useState<string | null>(null);
+  const [artifacts, setArtifacts] = useState<ArtifactSummary[]>([]);
+  const [artifactDrafts, setArtifactDrafts] = useState<Record<string, string>>({});
+  const [artifactStates, setArtifactStates] = useState<Record<string, 'saving' | 'saved' | 'error'>>({});
 
   const checkApiHealth = useCallback(async () => {
     setApiState('loading');
@@ -140,6 +163,80 @@ function ResumeLibrary({
   useEffect(() => {
     void loadResumes();
   }, [loadResumes]);
+
+  useEffect(() => {
+    const confirmedResume = resumes.find((resume) => resume.sanitizationStatus === 'CONFIRMED');
+
+    if (selectedVacancyResumeId.length === 0 && confirmedResume !== undefined) {
+      setSelectedVacancyResumeId(confirmedResume.id);
+    }
+  }, [resumes, selectedVacancyResumeId]);
+
+  useEffect(() => {
+    if (analysisRun === null || (analysisRun.status !== 'QUEUED' && analysisRun.status !== 'RUNNING')) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void getInitialAnalysisStatus(
+        getApiBaseUrl(),
+        analysisRun.applicationCaseId,
+        analysisRun.id,
+      )
+        .then(setAnalysisRun)
+        .catch((error) => setVacancyError(getFormErrorMessage(error)));
+    }, 2_000);
+
+    return () => window.clearInterval(timer);
+  }, [analysisRun]);
+
+  useEffect(() => {
+    if (analysisRun === null || analysisRun.status !== 'SUCCEEDED') {
+      return;
+    }
+
+    void Promise.all([
+      getInitialAnalysisResult(getApiBaseUrl(), analysisRun.applicationCaseId, analysisRun.id),
+      getArtifacts(getApiBaseUrl(), analysisRun.applicationCaseId),
+    ])
+      .then(([markdown, nextArtifacts]) => {
+        setAnalysisMarkdown(markdown);
+        setArtifacts(nextArtifacts);
+        setArtifactDrafts(Object.fromEntries(nextArtifacts.map((artifact) => [
+          artifact.id, artifact.editedContent ?? artifact.generatedContent,
+        ])));
+        setArtifactStates({});
+        setAnalysisResultError(null);
+      })
+      .catch((error) => setAnalysisResultError(getFormErrorMessage(error)));
+  }, [analysisRun]);
+
+  useEffect(() => {
+    if (analysisRun === null) {
+      return;
+    }
+
+    const timers = artifacts.flatMap((artifact) => {
+      const draft = artifactDrafts[artifact.id];
+      const savedContent = artifact.editedContent ?? artifact.generatedContent;
+
+      if (draft === undefined || draft.trim().length === 0 || draft === savedContent) {
+        return [];
+      }
+
+      return [window.setTimeout(() => {
+        setArtifactStates((current) => ({ ...current, [artifact.id]: 'saving' }));
+        void updateArtifact(getApiBaseUrl(), analysisRun.applicationCaseId, artifact.id, draft.trim())
+          .then((updatedArtifact) => {
+            setArtifacts((current) => current.map((artifact_) => artifact_.id === updatedArtifact.id ? updatedArtifact : artifact_));
+            setArtifactStates((current) => ({ ...current, [artifact.id]: 'saved' }));
+          })
+          .catch(() => setArtifactStates((current) => ({ ...current, [artifact.id]: 'error' })));
+      }, 700)];
+    });
+
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [analysisRun, artifactDrafts, artifacts]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -292,6 +389,68 @@ function ResumeLibrary({
       ),
     );
   }
+
+  async function submitVacancy(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setVacancyError(null);
+    setVacancyMessage(null);
+
+    const normalizedTitle = vacancyTitle.trim();
+
+    if (normalizedTitle.length === 0) {
+      setVacancyError('Укажите название вакансии.');
+      return;
+    }
+
+    if (selectedVacancyResumeId.length === 0) {
+      setVacancyError('Сначала выберите подтверждённое резюме.');
+      return;
+    }
+
+    if (vacancySourceMode === 'text' && vacancyText.trim().length === 0) {
+      setVacancyError('Вставьте текст вакансии.');
+      return;
+    }
+
+    if (vacancySourceMode === 'file' && vacancyFile === null) {
+      setVacancyError('Выберите файл вакансии в формате PDF, MD или TXT.');
+      return;
+    }
+
+    setIsSubmittingVacancy(true);
+
+    try {
+      const applicationCase = vacancySourceMode === 'text'
+        ? await createTextApplicationCase(getApiBaseUrl(), {
+            title: normalizedTitle,
+            resumeId: selectedVacancyResumeId,
+            vacancyText: vacancyText.trim(),
+          })
+        : await createFileApplicationCase(getApiBaseUrl(), {
+            title: normalizedTitle,
+            resumeId: selectedVacancyResumeId,
+            file: vacancyFile as File,
+          });
+      const run = await launchInitialAnalysis(getApiBaseUrl(), applicationCase.id);
+
+      setAnalysisRun(run);
+      setAnalysisMarkdown(null);
+      setAnalysisResultError(null);
+      setArtifacts([]);
+      setArtifactDrafts({});
+      setArtifactStates({});
+      setVacancyTitle('');
+      setVacancyText('');
+      setVacancyFile(null);
+      setVacancyMessage('Анализ запущен. Обновляем статус автоматически.');
+    } catch (error) {
+      setVacancyError(getFormErrorMessage(error));
+    } finally {
+      setIsSubmittingVacancy(false);
+    }
+  }
+
+  const confirmedResumes = resumes.filter((resume) => resume.sanitizationStatus === 'CONFIRMED');
 
   return (
     <main className="app-shell">
@@ -531,6 +690,119 @@ function ResumeLibrary({
           )}
         </section>
       )}
+
+      <section className="vacancy-panel" aria-labelledby="create-vacancy-title">
+        <div className="preview-heading">
+          <div>
+            <p className="eyebrow">СЛЕДУЮЩИЙ ШАГ</p>
+            <h2 id="create-vacancy-title">Создать вакансию</h2>
+            <p>Выберите подтверждённое резюме, добавьте вакансию и запустите один первоначальный анализ.</p>
+          </div>
+        </div>
+
+        {confirmedResumes.length === 0 ? (
+          <p className="form-message" role="status">Подтвердите хотя бы одно резюме, чтобы начать анализ вакансии.</p>
+        ) : (
+          <form className="resume-form" onSubmit={(event) => void submitVacancy(event)} noValidate>
+            <label className="field">
+              <span>Название вакансии</span>
+              <input
+                value={vacancyTitle}
+                onChange={(event) => setVacancyTitle(event.target.value)}
+                maxLength={180}
+                placeholder="Например, Backend developer — Acme"
+                disabled={isSubmittingVacancy}
+              />
+            </label>
+
+            <label className="field">
+              <span>Резюме для анализа</span>
+              <select
+                value={selectedVacancyResumeId}
+                onChange={(event) => setSelectedVacancyResumeId(event.target.value)}
+                disabled={isSubmittingVacancy}
+              >
+                {confirmedResumes.map((resume) => <option key={resume.id} value={resume.id}>{resume.title}</option>)}
+              </select>
+            </label>
+
+            <fieldset className="source-switch" disabled={isSubmittingVacancy}>
+              <legend>Как добавить вакансию</legend>
+              <label>
+                <input type="radio" name="vacancy-source-mode" checked={vacancySourceMode === 'text'} onChange={() => setVacancySourceMode('text')} />
+                <span>Вставить текст</span>
+              </label>
+              <label>
+                <input type="radio" name="vacancy-source-mode" checked={vacancySourceMode === 'file'} onChange={() => setVacancySourceMode('file')} />
+                <span>Загрузить файл</span>
+              </label>
+            </fieldset>
+
+            {vacancySourceMode === 'text' ? (
+              <label className="field">
+                <span>Текст вакансии</span>
+                <textarea
+                  value={vacancyText}
+                  onChange={(event) => setVacancyText(event.target.value)}
+                  rows={10}
+                  maxLength={50_000}
+                  placeholder="Вставьте текст вакансии целиком"
+                  disabled={isSubmittingVacancy}
+                />
+                <small>{vacancyText.length.toLocaleString('ru-RU')} / 50&nbsp;000 символов</small>
+              </label>
+            ) : (
+              <label className="file-field">
+                <span>Файл вакансии</span>
+                <input
+                  type="file"
+                  accept=".pdf,.md,.txt,application/pdf,text/markdown,text/plain"
+                  onChange={(event) => setVacancyFile(event.target.files?.[0] ?? null)}
+                  disabled={isSubmittingVacancy}
+                />
+                <strong>{vacancyFile?.name ?? 'PDF, MD или TXT'}</strong>
+              </label>
+            )}
+
+            {vacancyError !== null && <p className="form-message form-message--error" role="alert">{vacancyError}</p>}
+            {vacancyMessage !== null && <p className="form-message form-message--success" role="status">{vacancyMessage}</p>}
+
+            <button className="button button--primary" type="submit" disabled={isSubmittingVacancy}>
+              {isSubmittingVacancy ? 'Запускаем…' : 'Запустить анализ'}
+            </button>
+          </form>
+        )}
+
+        {analysisRun !== null && (
+          <div className={`analysis-state analysis-state--${analysisRun.status.toLowerCase()}`} role="status">
+            <p><strong>Статус анализа:</strong> {getAnalysisRunLabel(analysisRun)}</p>
+            {analysisRun.status === 'FAILED' && <p>Не удалось завершить анализ. Ваш текст вакансии сохранён в черновике.</p>}
+          </div>
+        )}
+
+        {analysisResultError !== null && <p className="form-message form-message--error" role="alert">{analysisResultError}</p>}
+        {artifacts.length > 0 && analysisRun !== null && (
+          <ArtifactMaterials
+            artifacts={artifacts}
+            drafts={artifactDrafts}
+            states={artifactStates}
+            onDraftChange={(artifactId, value) => setArtifactDrafts((current) => ({ ...current, [artifactId]: value }))}
+            onReset={(artifact) => {
+              if (!window.confirm('Вернуть AI-версию? Ваша ручная редакция будет удалена.')) return;
+
+              setArtifactStates((current) => ({ ...current, [artifact.id]: 'saving' }));
+              void resetArtifactToGeneratedContent(getApiBaseUrl(), analysisRun.applicationCaseId, artifact.id)
+                .then((updatedArtifact) => {
+                  setArtifacts((current) => current.map((artifact_) => artifact_.id === artifact.id ? updatedArtifact : artifact_));
+                  setArtifactDrafts((current) => ({ ...current, [artifact.id]: updatedArtifact.generatedContent }));
+                  setArtifactStates((current) => ({ ...current, [artifact.id]: 'saved' }));
+                })
+                .catch(() => setArtifactStates((current) => ({ ...current, [artifact.id]: 'error' })));
+            }}
+          />
+        )}
+        {analysisMarkdown !== null && <MarkdownReport markdown={analysisMarkdown} />}
+      </section>
     </main>
   );
 }
@@ -732,4 +1004,104 @@ function getFormErrorMessage(error: unknown): string {
   }
 
   return 'Не удалось создать черновик. Повторите попытку позже.';
+}
+
+function getAnalysisRunLabel(analysisRun: AnalysisRunSummary): string {
+  if (analysisRun.status === 'QUEUED') return 'в очереди';
+  if (analysisRun.status === 'RUNNING') return analysisRun.currentStage === null ? 'выполняется' : `этап: ${analysisRun.currentStage}`;
+  if (analysisRun.status === 'SUCCEEDED') return 'готов';
+  return 'завершился с ошибкой';
+}
+
+function MarkdownReport({ markdown }: { markdown: string }) {
+  const blocks = markdown.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
+
+  return (
+    <section className="analysis-report" aria-labelledby="analysis-report-title">
+      <h2 id="analysis-report-title">Результат анализа</h2>
+      {blocks.map((block, index) => {
+        const lines = block.split('\n');
+        const heading = /^(#{1,3})\s+(.+)$/.exec(lines[0] ?? '');
+
+        if (heading !== null) {
+          const content = heading[2];
+          if (heading[1].length === 1) return <h3 key={index}>{content}</h3>;
+          return <h4 key={index}>{content}</h4>;
+        }
+
+        if (lines.every((line) => line.startsWith('- '))) {
+          return <ul key={index}>{lines.map((line) => <li key={line}>{line.slice(2)}</li>)}</ul>;
+        }
+
+        return <p key={index}>{block}</p>;
+      })}
+    </section>
+  );
+}
+
+function ArtifactMaterials({
+  artifacts, drafts, states, onDraftChange, onReset,
+}: {
+  artifacts: ArtifactSummary[];
+  drafts: Record<string, string>;
+  states: Record<string, 'saving' | 'saved' | 'error'>;
+  onDraftChange: (artifactId: string, value: string) => void;
+  onReset: (artifact: ArtifactSummary) => void;
+}) {
+  return (
+    <section className="artifact-materials" aria-labelledby="artifact-materials-title">
+      <div className="artifact-materials-heading">
+        <div>
+          <p className="eyebrow">МАТЕРИАЛЫ</p>
+          <h2 id="artifact-materials-title">Черновики для следующего шага</h2>
+        </div>
+        <p>Изменения сохраняются автоматически.</p>
+      </div>
+      <p className="material-warning" role="note">
+        <span>WARNING · CONDITIONAL</span>
+        Материалы готовы. Проверьте отмеченные AI-предположения перед отправкой. Отправка остаётся ручным действием пользователя.
+      </p>
+      <div className="artifact-list">
+        {artifacts.map((artifact) => (
+          <article className="artifact-card" key={artifact.id}>
+            <div className="artifact-card-heading">
+              <h3>{getArtifactTitle(artifact.type)}</h3>
+              <p className={`artifact-save-state artifact-save-state--${states[artifact.id] ?? 'saved'}`} role="status">
+                {getArtifactStateLabel(states[artifact.id] ?? 'saved')}
+              </p>
+            </div>
+            <label className="field">
+              <span className="sr-only">{getArtifactTitle(artifact.type)}</span>
+              <textarea
+                value={drafts[artifact.id] ?? artifact.editedContent ?? artifact.generatedContent}
+                onChange={(event) => onDraftChange(artifact.id, event.target.value)}
+                rows={8}
+                maxLength={50_000}
+              />
+            </label>
+            {artifact.editedContent !== null && (
+              <button className="button button--secondary" type="button" onClick={() => onReset(artifact)} disabled={states[artifact.id] === 'saving'}>
+                {states[artifact.id] === 'saving' ? 'Возвращаем…' : 'Вернуть AI-версию'}
+              </button>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function getArtifactTitle(type: ArtifactSummary['type']): string {
+  return {
+    RESUME_RECOMMENDATIONS: 'Блоки для резюме',
+    COVER_LETTER: 'Сопроводительное письмо',
+    RECRUITER_MESSAGE: 'Сообщение рекрутеру',
+    FOLLOW_UP: 'Follow-up',
+  }[type];
+}
+
+function getArtifactStateLabel(state: 'saving' | 'saved' | 'error'): string {
+  if (state === 'saving') return 'Сохраняем…';
+  if (state === 'error') return 'Не удалось сохранить';
+  return 'Сохранено';
 }

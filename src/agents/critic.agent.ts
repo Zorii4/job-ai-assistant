@@ -47,7 +47,6 @@ ${producerOutput}
         {
           maxOutputTokens: options.maxOutputTokens,
           timeoutMs: options.timeoutMs,
-          jsonMode: process.env.LLM_CRITIC_JSON_MODE === "true",
           metrics: llmMetrics
         }
       );
