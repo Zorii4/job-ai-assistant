@@ -22,7 +22,7 @@ Job AI Assistant — portfolio-проект, развивающийся из Tel
 | Возможность | Статус | Что доступно сейчас |
 | --- | --- | --- |
 | Базовая web/API-платформа | implemented | React + Vite frontend, NestJS API, healthcheck, shared runtime contracts, Prisma schema и Docker Compose. |
-| Серверная авторизация | partial | Защищённые API routes используют серверную session; web-экраны регистрации и входа ещё не реализованы. |
+| Авторизация и доступ | implemented | Регистрация по одноразовому инвайту, подтверждение email, вход, восстановление доступа, logout и web-экраны используют server-side sessions в httpOnly cookie. |
 | Библиотека резюме | implemented | Создание черновика из текста или PDF/MD/TXT, список, preview, редактирование обезличенной версии, подтверждение и удаление. |
 | Защита резюме | implemented | Проверки размера, MIME и расширения, извлечение текста, удаление исходного upload buffer, ограничение до пяти резюме и проверки владения данными. |
 | Initial AI workflow | implemented as legacy core | Сохранён отдельный flow Analyst → Producer → Critic → возможная revision → Orchestrator; для публичной разработки доступен детерминированный mock mode. |

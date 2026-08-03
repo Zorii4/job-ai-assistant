@@ -6,6 +6,7 @@
     { "pattern": "PROJECT_PLAN.md", "classification": "PRIVATE" },
     { "pattern": "PUBLIC_RELEASE_PLAN.md", "classification": "PRIVATE" },
     { "pattern": "local/internal-docs/**", "classification": "PRIVATE" },
+    { "pattern": "docs/engineering-decisions.md", "classification": "PRIVATE" },
     { "pattern": ".env.example", "classification": "PUBLIC" },
     { "pattern": ".env", "classification": "SECRET" },
     { "pattern": ".env.*", "classification": "SECRET" },

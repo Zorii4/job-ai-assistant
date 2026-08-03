@@ -7,7 +7,11 @@ import {
   ApiRequestError,
   createTextResume,
   getApiHealth,
+  getCurrentUser,
   getResumes,
+  requestPasswordReset,
+  signInWithPassword,
+  signOut,
 } from '../src/api.js';
 
 test('accepts a valid API healthcheck response', async (t) => {
@@ -98,6 +102,23 @@ test('loads the authenticated resume library', async (t) => {
   assert.equal(resumes[0]?.title, 'Product Manager');
 });
 
+test('reads the current user only from the server session endpoint', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  globalThis.fetch = async (input, init) => {
+    assert.equal(input, 'http://api.test/users/me');
+    assert.equal(init?.credentials, 'include');
+    return Response.json({
+      user: { id: 'user_1', name: 'Ирина', email: 'user@example.test', emailVerified: true },
+      usage: { planCode: 'ALPHA' },
+    });
+  };
+
+  const user = await getCurrentUser('http://api.test');
+  assert.equal(user.emailVerified, true);
+});
+
 test('creates a text resume through an authenticated request', async (t) => {
   const originalFetch = globalThis.fetch;
 
@@ -132,4 +153,60 @@ test('creates a text resume through an authenticated request', async (t) => {
   });
 
   assert.equal(resume.id, 'resume_1');
+});
+
+test('signs in through the Better Auth endpoint with cookies enabled', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  globalThis.fetch = async (input, init) => {
+    assert.equal(input, 'http://api.test/api/auth/sign-in/email');
+    assert.equal(init?.method, 'POST');
+    assert.equal(init?.credentials, 'include');
+    assert.deepEqual(init?.headers, { 'Content-Type': 'application/json' });
+    assert.equal(init?.body, JSON.stringify({ email: 'user@example.test', password: 'password-123' }));
+    return Response.json({ token: 'server-cookie-is-authoritative' });
+  };
+
+  await assert.doesNotReject(() =>
+    signInWithPassword('http://api.test', { email: 'user@example.test', password: 'password-123' }),
+  );
+});
+
+test('requests password recovery without exposing whether the account exists', async (t) => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    Object.defineProperty(globalThis, 'window', { value: originalWindow, configurable: true });
+  });
+  Object.defineProperty(globalThis, 'window', {
+    value: { location: { origin: 'http://web.test' } },
+    configurable: true,
+  });
+
+  globalThis.fetch = async (input, init) => {
+    assert.equal(input, 'http://api.test/api/auth/request-password-reset');
+    assert.equal(init?.body, JSON.stringify({
+      email: 'user@example.test',
+      redirectTo: 'http://web.test/?auth=reset-password',
+    }));
+    return Response.json({ status: true, message: 'Check your email' });
+  };
+
+  await assert.doesNotReject(() => requestPasswordReset('http://api.test', 'user@example.test'));
+});
+
+test('signs out through the Better Auth endpoint', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  globalThis.fetch = async (input, init) => {
+    assert.equal(input, 'http://api.test/api/auth/sign-out');
+    assert.equal(init?.method, 'POST');
+    assert.equal(init?.credentials, 'include');
+    return Response.json({ success: true });
+  };
+
+  await assert.doesNotReject(() => signOut('http://api.test'));
 });

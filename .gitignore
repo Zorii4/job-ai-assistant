@@ -9,6 +9,7 @@
 /private/
 /secrets/
 /local/
+/docs/engineering-decisions.md
 # Private normative documents live in /local/internal-docs/. Keep these legacy root
 # paths ignored too, so an accidental copy cannot be staged before the scanner blocks it.
 *.pem
