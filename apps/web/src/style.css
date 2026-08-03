@@ -55,6 +55,13 @@ textarea:disabled {
   justify-content: space-between;
 }
 
+.header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
 .app-header {
   align-items: flex-start;
   padding-bottom: var(--space-lg);
@@ -526,6 +533,79 @@ h3 {
   background: var(--color-paper-muted);
 }
 
+.auth-shell {
+  box-sizing: border-box;
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: var(--space-lg);
+}
+
+.auth-card,
+.auth-state {
+  box-sizing: border-box;
+  width: min(100%, 32rem);
+  border: var(--rule-width) solid var(--color-rule);
+  border-radius: var(--radius-card);
+  background: var(--color-paper-raised);
+  box-shadow: var(--shadow-raised);
+}
+
+.auth-card {
+  padding: var(--space-xl);
+}
+
+.auth-state {
+  margin: 0;
+  padding: var(--space-lg);
+  color: var(--color-ink-muted);
+}
+
+.auth-heading > p:last-child {
+  max-width: var(--measure-body);
+  margin: var(--space-sm) 0 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-sm);
+  line-height: var(--line-body);
+}
+
+.auth-form {
+  display: grid;
+  gap: var(--space-md);
+  margin-top: var(--space-xl);
+}
+
+.auth-form .button--primary {
+  justify-self: stretch;
+}
+
+.auth-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-top: var(--space-lg);
+}
+
+.auth-links button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.auth-links button:hover {
+  color: var(--color-accent-hover);
+}
+
+.auth-links button:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
 @media (max-width: 48rem) {
   .app-shell {
     padding-top: var(--space-lg);
@@ -546,6 +626,12 @@ h3 {
     flex-direction: column;
   }
 
+  .header-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
   .connection-state {
     align-self: flex-start;
   }
@@ -557,8 +643,17 @@ h3 {
 
   .notice .button,
   .button--primary,
-  .preview-actions .button {
+  .preview-actions .button,
+  .header-actions .button {
     width: 100%;
+  }
+
+  .auth-shell {
+    padding: var(--space-md);
+  }
+
+  .auth-card {
+    padding: var(--space-lg);
   }
 }
 

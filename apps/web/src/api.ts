@@ -23,6 +23,13 @@ export class ApiRequestError extends Error {
   }
 }
 
+export type CurrentUser = {
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+};
+
 export function getApiBaseUrl(): string {
   return import.meta.env.VITE_API_BASE_URL ?? '';
 }
@@ -31,6 +38,56 @@ export async function getApiHealth(baseUrl: string): Promise<ApiHealth> {
   const response = await fetch(`${baseUrl}/health`, { credentials: 'include' });
 
   return parseResponse(response, HealthResponseSchema, 'API healthcheck returned an invalid response.');
+}
+
+export async function getCurrentUser(baseUrl: string): Promise<CurrentUser> {
+  const response = await fetch(`${baseUrl}/users/me`, { credentials: 'include' });
+  const payload = await parseUnknownResponse(response);
+
+  if (!isCurrentUserResponse(payload)) {
+    throw new Error('API returned an invalid current user response.');
+  }
+
+  return payload.user;
+}
+
+export async function signUpWithInvite(
+  baseUrl: string,
+  input: { name: string; email: string; password: string; inviteId: string },
+): Promise<void> {
+  await postAuth(baseUrl, '/sign-up/email', {
+    ...input,
+    callbackURL: getEmailVerificationCallbackUrl(),
+  });
+}
+
+export async function signInWithPassword(
+  baseUrl: string,
+  input: { email: string; password: string },
+): Promise<void> {
+  await postAuth(baseUrl, '/sign-in/email', input);
+}
+
+export async function signOut(baseUrl: string): Promise<void> {
+  await postAuth(baseUrl, '/sign-out', undefined);
+}
+
+export async function sendVerificationEmail(baseUrl: string, email: string): Promise<void> {
+  await postAuth(baseUrl, '/send-verification-email', {
+    email,
+    callbackURL: getEmailVerificationCallbackUrl(),
+  });
+}
+
+export async function requestPasswordReset(baseUrl: string, email: string): Promise<void> {
+  await postAuth(baseUrl, '/request-password-reset', {
+    email,
+    redirectTo: getPasswordResetCallbackUrl(),
+  });
+}
+
+export async function resetPassword(baseUrl: string, token: string, newPassword: string): Promise<void> {
+  await postAuth(baseUrl, '/reset-password', { token, newPassword });
 }
 
 export async function getResumes(baseUrl: string): Promise<ResumeSummary[]> {
@@ -191,4 +248,75 @@ async function parseResponse<T>(
   }
 
   return parsedPayload.data;
+}
+
+async function postAuth(baseUrl: string, path: string, body: unknown): Promise<void> {
+  const response = await fetch(`${baseUrl}/api/auth${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+  await parseUnknownResponse(response);
+}
+
+async function parseUnknownResponse(response: Response): Promise<unknown> {
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => undefined);
+    const parsedPublicError = ApiErrorResponseSchema.safeParse(payload);
+
+    if (parsedPublicError.success) {
+      throw new ApiRequestError(response.status, parsedPublicError.data.error);
+    }
+
+    const message = getBetterAuthErrorMessage(payload);
+    throw new ApiRequestError(response.status, {
+      code: 'INTERNAL_ERROR',
+      message: message ?? 'Не удалось выполнить действие. Повторите попытку позже.',
+    });
+  }
+
+  return response.json().catch(() => undefined);
+}
+
+function getBetterAuthErrorMessage(payload: unknown): string | undefined {
+  if (
+    typeof payload === 'object' &&
+    payload !== null &&
+    'message' in payload &&
+    typeof payload.message === 'string' &&
+    payload.message.length > 0
+  ) {
+    return payload.message;
+  }
+
+  return undefined;
+}
+
+function isCurrentUserResponse(value: unknown): value is { user: CurrentUser } {
+  if (typeof value !== 'object' || value === null || !('user' in value)) {
+    return false;
+  }
+
+  const { user } = value;
+  if (typeof user !== 'object' || user === null) {
+    return false;
+  }
+
+  const candidate = user as Record<string, unknown>;
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.name === 'string' &&
+    typeof candidate.email === 'string' &&
+    typeof candidate.emailVerified === 'boolean'
+  );
+}
+
+function getEmailVerificationCallbackUrl(): string {
+  return `${window.location.origin}/?auth=verified`;
+}
+
+function getPasswordResetCallbackUrl(): string {
+  return `${window.location.origin}/?auth=reset-password`;
 }
