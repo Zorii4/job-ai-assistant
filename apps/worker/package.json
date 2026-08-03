@@ -1,0 +1,16 @@
+{
+  "name": "@job-ai-assistant/worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "test": "node --import tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "@job-ai-assistant/contracts": "*",
+    "pg": "^8.22.0",
+    "pg-boss": "^12.26.2"
+  }
+}

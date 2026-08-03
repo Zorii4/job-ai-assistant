@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { StructuredResponseValidationError } from "../../src/llm/llmClient.js";
 import { retryStructuredResponse } from "../../src/llm/retryStructuredResponse.js";
 
 test("retries one invalid structured LLM response", async () => {
@@ -57,4 +58,23 @@ test("uses one recovery attempt after two invalid structured responses", async (
   assert.equal(calls, 2);
   assert.equal(result, "recovered");
   assert.deepEqual(retryEvents, ["retry", "recovery"]);
+});
+
+test("retries a validation error without exposing a model response", async () => {
+  let calls = 0;
+
+  const result = await retryStructuredResponse(
+    async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw new StructuredResponseValidationError("AnalystResult", ["scores.atsMatch: required"]);
+      }
+
+      return "valid";
+    },
+    async () => "recovered"
+  );
+
+  assert.equal(result, "valid");
+  assert.equal(calls, 2);
 });

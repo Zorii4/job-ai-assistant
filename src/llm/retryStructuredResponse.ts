@@ -1,3 +1,5 @@
+import { StructuredResponseValidationError } from "./llmClient.js";
+
 export type StructuredResponseRetryEvent = {
   phase: "retry" | "recovery";
   errorCode: "LLM_RESPONSE_INVALID";
@@ -32,6 +34,10 @@ export async function retryStructuredResponse<T>(
 }
 
 function isInvalidStructuredResponse(error: unknown): boolean {
+  if (error instanceof StructuredResponseValidationError) {
+    return true;
+  }
+
   if (!(error instanceof Error)) {
     return false;
   }
