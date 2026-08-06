@@ -8,7 +8,6 @@ import {
 
 import type {
   CreateResumeFileRequest,
-  CreateResumeRequest,
   ResumeDetail,
   ResumeSummary,
   UpdateSanitizedResumeRequest,
@@ -39,7 +38,7 @@ const resumeDetailSelect = {
 type ResumeRecord = {
   id: string;
   title: string;
-  sourceType: 'TEXT' | 'FILE';
+  sourceType: 'FILE';
   sanitizationStatus: 'PENDING_REVIEW' | 'CONFIRMED';
   confirmedAt: Date | null;
   createdAt: Date;
@@ -59,14 +58,6 @@ export class ResumesService {
     this.database = database ?? prisma;
   }
 
-  async createTextDraft(userId: string, input: CreateResumeRequest): Promise<ResumeSummary> {
-    return this.createDraft(userId, {
-      title: input.title,
-      sourceType: 'TEXT',
-      sourceText: input.sourceText,
-    });
-  }
-
   async createFileDraft(
     userId: string,
     input: CreateResumeFileRequest,
@@ -84,7 +75,7 @@ export class ResumesService {
     userId: string,
     input: {
       title: string;
-      sourceType: 'TEXT' | 'FILE';
+      sourceType: 'FILE';
       sourceFileName?: string;
       sourceText: string;
     },

@@ -29,7 +29,6 @@ import {
 import {
   parseResumeFileRequest,
   parseResumeId,
-  parseResumeRequest,
   parseUpdateSanitizedResumeRequest,
 } from './resumes.request.js';
 import { ResumesService } from './resumes.service.js';
@@ -37,17 +36,6 @@ import { ResumesService } from './resumes.service.js';
 @Controller('resumes')
 export class ResumesController {
   constructor(private readonly resumesService: ResumesService) {}
-
-  @Post()
-  async create(
-    @CurrentSession() session: AuthenticatedSession,
-    @Body() body: unknown,
-  ) {
-    const input = parseResumeRequest(body);
-    const resume = await this.resumesService.createTextDraft(session.user.id, input);
-
-    return ResumeResponseSchema.parse({ schemaVersion: API_SCHEMA_VERSION, resume });
-  }
 
   @Post('file')
   @UseInterceptors(

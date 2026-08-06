@@ -35,7 +35,7 @@ Initial AI workflow
 - `apps/web` — React + Vite frontend. Текущая UI-реализация покрывает библиотеку
   резюме, preview обезличенной версии, создание вакансии и polling initial-analysis run.
 - `apps/api` — NestJS API. В нём реализованы healthcheck, server-side session
-  guard, endpoints библиотеки резюме и создание текстового черновика вакансии.
+  guard, endpoints библиотеки резюме и создание файлового черновика вакансии.
 - `packages/contracts` — shared Zod runtime contracts для public API.
 - `prisma` — PostgreSQL schema и миграции.
 - `apps/worker` — отдельный PgBoss consumer. Он получает только IDs, загружает
@@ -82,7 +82,7 @@ Browser
   -> ownership check by server session
   -> PostgreSQL record scoped by userId
 
-Resume file/text
+Resume file
   -> validation and text extraction
   -> source text + editable sanitized version
   -> user confirmation required before future LLM use
@@ -125,7 +125,7 @@ API validates input, ownership and quota
   -> web polls or receives server-sent events
 ```
 
-`ApplicationCase` частично реализован: API создаёт черновик из текста или
+`ApplicationCase` частично реализован: API создаёт черновик из файла
 PDF/MD/TXT после проверки владения подтверждённым резюме и сохраняет snapshot его
 `sanitizedText`. `AnalysisRun` уже имеет отдельную персистентную модель со
 статусами lifecycle. После server-side проверки владения API создаёт один

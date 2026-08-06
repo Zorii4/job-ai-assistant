@@ -32,7 +32,6 @@ enum PlanCode {
 }
 
 enum ResumeSourceType {
-  TEXT
   FILE
 }
 
@@ -64,7 +63,6 @@ model Resume {
 }
 
 enum VacancySourceType {
-  TEXT
   FILE
 }
 

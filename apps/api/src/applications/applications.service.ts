@@ -12,7 +12,6 @@ import type {
   InitialAnalysisResult,
   AnalysisRunSummary,
   CreateApplicationCaseFileRequest,
-  CreateApplicationCaseRequest,
   UpdateArtifactRequest,
 } from '@job-ai-assistant/contracts';
 
@@ -37,7 +36,7 @@ type ApplicationCaseRecord = {
   id: string;
   title: string;
   resumeId: string;
-  vacancySourceType: 'TEXT' | 'FILE';
+  vacancySourceType: 'FILE';
   status: 'DRAFT' | 'ANALYZING' | 'ANALYSIS_READY' | 'FAILED';
   currentStage: string;
   createdAt: Date;
@@ -288,28 +287,18 @@ export class ApplicationsService {
     return { ...updatedArtifact, updatedAt: updatedArtifact.updatedAt.toISOString() };
   }
 
-  async createTextDraftForUser(
-    userId: string,
-    input: CreateApplicationCaseRequest,
-  ): Promise<ApplicationCaseSummary> {
-    return this.createDraftForUser(userId, input, { sourceType: 'TEXT' });
-  }
-
   async createFileDraftForUser(
     userId: string,
     input: CreateApplicationCaseFileRequest,
     file: { sourceFileName: string; sourceText: string },
   ): Promise<ApplicationCaseSummary> {
-    return this.createDraftForUser(userId, { ...input, vacancyText: file.sourceText }, {
-      sourceType: 'FILE',
-      sourceFileName: file.sourceFileName,
-    });
+    return this.createDraftForUser(userId, input, file);
   }
 
   private async createDraftForUser(
     userId: string,
-    input: CreateApplicationCaseRequest,
-    source: { sourceType: 'TEXT' | 'FILE'; sourceFileName?: string },
+    input: CreateApplicationCaseFileRequest,
+    file: { sourceFileName: string; sourceText: string },
   ): Promise<ApplicationCaseSummary> {
     const resume = await this.database.resume.findFirst({
       where: { id: input.resumeId, userId, sanitizationStatus: 'CONFIRMED' },
@@ -329,15 +318,15 @@ export class ApplicationsService {
       throw new BadRequestException('The selected resume must be confirmed.');
     }
 
-    const { sanitizedText: vacancySanitizedText } = sanitizeDirectIdentifiers(input.vacancyText);
+    const { sanitizedText: vacancySanitizedText } = sanitizeDirectIdentifiers(file.sourceText);
     const applicationCase = await this.database.applicationCase.create({
       data: {
         userId,
         resumeId: input.resumeId,
         title: input.title,
-        vacancySourceType: source.sourceType,
-        ...(source.sourceFileName === undefined ? {} : { vacancySourceFileName: source.sourceFileName }),
-        vacancySourceText: input.vacancyText,
+        vacancySourceType: 'FILE',
+        vacancySourceFileName: file.sourceFileName,
+        vacancySourceText: file.sourceText,
         vacancySanitizedText,
         resumeSanitizedText: resume.sanitizedText,
       },

@@ -1,8 +1,7 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  CreateResumeRequestSchema,
   CreateResumeFileRequestSchema,
   ResumeDetailResponseSchema,
   ResumeListResponseSchema,
@@ -11,84 +10,18 @@ import {
   ApplicationCaseResponseSchema,
   InitialAnalysisResultResponseSchema,
   AnalysisRunResponseSchema,
-  CreateApplicationCaseRequestSchema,
   CreateApplicationCaseFileRequestSchema,
   UpdateArtifactRequestSchema,
   API_SCHEMA_VERSION,
+  ResumeSourceTypeSchema,
+  VacancySourceTypeSchema,
 } from '../src/index.js';
 
-test('accepts a valid text resume draft request', () => {
-  const result = CreateResumeRequestSchema.safeParse({
-    title: 'Frontend resume',
-    sourceText: 'Опыт работы и навыки',
-  });
-
-  assert.equal(result.success, true);
-});
-
-test('accepts a text vacancy draft request and keeps its public response text-free', () => {
-  assert.equal(
-    CreateApplicationCaseRequestSchema.safeParse({
-      title: 'Backend developer',
-      resumeId: 'resume-1',
-      vacancyText: 'Node.js developer',
-    }).success,
-    true,
-  );
-
-  const response = {
-    schemaVersion: API_SCHEMA_VERSION,
-    applicationCase: {
-      id: 'application-1',
-      title: 'Backend developer',
-      resumeId: 'resume-1',
-      vacancySourceType: 'TEXT',
-      status: 'DRAFT',
-      currentStage: 'DRAFT',
-      createdAt: '2026-08-03T18:00:00.000Z',
-      updatedAt: '2026-08-03T18:00:00.000Z',
-    },
-  };
-
-  assert.equal(ApplicationCaseResponseSchema.safeParse(response).success, true);
-  assert.equal(
-    AnalysisRunResponseSchema.safeParse({
-      schemaVersion: API_SCHEMA_VERSION,
-      analysisRun: {
-        id: 'run-1',
-        applicationCaseId: 'application-1',
-        workflowType: 'INITIAL_ANALYSIS',
-        status: 'QUEUED',
-        currentStage: null,
-        errorCode: null,
-        createdAt: '2026-08-03T18:00:00.000Z',
-        updatedAt: '2026-08-03T18:00:00.000Z',
-      },
-    }).success,
-    true,
-  );
-  assert.equal(
-    InitialAnalysisResultResponseSchema.safeParse({
-      schemaVersion: API_SCHEMA_VERSION,
-      analysisResult: {
-        id: 'run-1',
-        applicationCaseId: 'application-1',
-        finalMarkdown: '# Итоговый отчёт',
-      },
-    }).success,
-    true,
-  );
-  assert.equal(
-    CreateApplicationCaseFileRequestSchema.safeParse({ title: 'Backend developer', resumeId: 'resume-1' }).success,
-    true,
-  );
-  assert.equal(
-    ApplicationCaseResponseSchema.safeParse({
-      ...response,
-      applicationCase: { ...response.applicationCase, vacancySourceText: 'private vacancy text' },
-    }).success,
-    false,
-  );
+test('allows only file sources for resumes and vacancies', () => {
+  assert.equal(ResumeSourceTypeSchema.safeParse('FILE').success, true);
+  assert.equal(ResumeSourceTypeSchema.safeParse('TEXT').success, false);
+  assert.equal(VacancySourceTypeSchema.safeParse('FILE').success, true);
+  assert.equal(VacancySourceTypeSchema.safeParse('TEXT').success, false);
 });
 
 test('validates a manually edited sanitized resume', () => {
@@ -108,16 +41,6 @@ test('accepts an edited artifact but rejects blank or unexpected content', () =>
   );
 });
 
-test('rejects an invalid text resume draft request', () => {
-  const result = CreateResumeRequestSchema.safeParse({
-    title: '',
-    sourceText: 'Опыт работы и навыки',
-    unexpected: true,
-  });
-
-  assert.equal(result.success, false);
-});
-
 test('accepts a title for a resume file draft', () => {
   assert.equal(
     CreateResumeFileRequestSchema.safeParse({ title: 'Frontend resume' }).success,
@@ -132,7 +55,7 @@ test('resume responses never include source text', () => {
     resume: {
       id: 'resume-1',
       title: 'Frontend resume',
-      sourceType: 'TEXT',
+      sourceType: 'FILE',
       sanitizationStatus: 'PENDING_REVIEW',
       confirmedAt: null,
       createdAt: '2026-07-28T12:00:00.000Z',

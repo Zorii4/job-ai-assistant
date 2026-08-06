@@ -14,7 +14,6 @@ import {
   ResumeListResponseSchema,
   ResumeDetailResponseSchema,
   ResumeResponseSchema,
-  type CreateResumeRequest,
   type ResumeDetail,
   type ResumeSummary,
 } from '@job-ai-assistant/contracts';
@@ -108,26 +107,6 @@ export async function getResumes(baseUrl: string): Promise<ResumeSummary[]> {
   );
 
   return payload.resumes;
-}
-
-export async function createTextResume(
-  baseUrl: string,
-  input: CreateResumeRequest,
-): Promise<ResumeSummary> {
-  const response = await fetch(`${baseUrl}/resumes`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-
-  const payload = await parseResponse(
-    response,
-    ResumeResponseSchema,
-    'API returned an invalid resume response.',
-  );
-
-  return payload.resume;
 }
 
 export async function createFileResume(
@@ -225,26 +204,6 @@ export async function deleteResume(baseUrl: string, resumeId: string): Promise<v
       message: 'Сервис временно недоступен. Повторите попытку позже.',
     });
   }
-}
-
-export async function createTextApplicationCase(
-  baseUrl: string,
-  input: { title: string; resumeId: string; vacancyText: string },
-): Promise<ApplicationCaseSummary> {
-  const response = await fetch(`${baseUrl}/applications`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-
-  const payload = await parseResponse(
-    response,
-    ApplicationCaseResponseSchema,
-    'API returned an invalid vacancy response.',
-  );
-
-  return payload.applicationCase;
 }
 
 export async function createFileApplicationCase(

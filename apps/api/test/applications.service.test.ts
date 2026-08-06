@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { BadRequestException, NotFoundException } from '@nestjs/common';
@@ -13,7 +13,7 @@ function createApplicationCaseRecord() {
     id: 'application-1',
     title: 'Backend developer',
     resumeId: 'resume-1',
-    vacancySourceType: 'TEXT' as const,
+    vacancySourceType: 'FILE' as const,
     status: 'DRAFT' as const,
     currentStage: 'DRAFT',
     createdAt,
@@ -42,17 +42,13 @@ test('creates a vacancy draft with a confirmed sanitized resume snapshot', async
   };
   const service = new ApplicationsService(database as never);
 
-  const result = await service.createTextDraftForUser('user-1', {
-    title: 'Backend developer',
-    resumeId: 'resume-1',
-    vacancyText: 'Компания: Acme\nКонтакт: hr@example.com\nNode.js developer',
-  });
+  const result = await service.createFileDraftForUser('user-1', { title: 'Backend developer', resumeId: 'resume-1' }, { sourceFileName: 'vacancy.txt', sourceText: 'Компания: Acme\nКонтакт: hr@example.com\nNode.js developer' });
 
   assert.deepEqual(result, {
     id: 'application-1',
     title: 'Backend developer',
     resumeId: 'resume-1',
-    vacancySourceType: 'TEXT',
+    vacancySourceType: 'FILE',
     status: 'DRAFT',
     currentStage: 'DRAFT',
     createdAt: '2026-08-03T18:00:00.000Z',
@@ -63,7 +59,8 @@ test('creates a vacancy draft with a confirmed sanitized resume snapshot', async
       userId: 'user-1',
       resumeId: 'resume-1',
       title: 'Backend developer',
-      vacancySourceType: 'TEXT',
+      vacancySourceType: 'FILE',
+      vacancySourceFileName: 'vacancy.txt',
       vacancySourceText: 'Компания: Acme\nКонтакт: hr@example.com\nNode.js developer',
       vacancySanitizedText: 'Компания: [EMPLOYER_1]\nКонтакт: [EMAIL_1]\nNode.js developer',
       resumeSanitizedText: '[EMAIL_1] опыт',
@@ -79,26 +76,6 @@ test('creates a vacancy draft with a confirmed sanitized resume snapshot', async
       updatedAt: true,
     },
   });
-});
-
-test('does not create a vacancy for another users resume', async () => {
-  const database = {
-    resume: {
-      async findFirst() {
-        return null;
-      },
-    },
-  };
-  const service = new ApplicationsService(database as never);
-
-  await assert.rejects(
-    service.createTextDraftForUser('user-2', {
-      title: 'Backend developer',
-      resumeId: 'resume-1',
-      vacancyText: 'Node.js developer',
-    }),
-    (error: unknown) => error instanceof NotFoundException,
-  );
 });
 
 test('creates a file vacancy draft with the safe file name', async () => {
@@ -151,11 +128,7 @@ test('requires a confirmed resume before creating a vacancy', async () => {
   const service = new ApplicationsService(database as never);
 
   await assert.rejects(
-    service.createTextDraftForUser('user-1', {
-      title: 'Backend developer',
-      resumeId: 'resume-1',
-      vacancyText: 'Node.js developer',
-    }),
+    service.createFileDraftForUser('user-1', { title: 'Backend developer', resumeId: 'resume-1' }, { sourceFileName: 'vacancy.txt', sourceText: 'Node.js developer' }),
     (error: unknown) => error instanceof BadRequestException,
   );
 });
