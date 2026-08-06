@@ -35,17 +35,8 @@ export const ApiErrorResponseSchema = z
 
 export type ApiErrorResponse = z.infer<typeof ApiErrorResponseSchema>;
 
-export const ResumeSourceTypeSchema = z.enum(['TEXT', 'FILE']);
+export const ResumeSourceTypeSchema = z.literal('FILE');
 export const SanitizationStatusSchema = z.enum(['PENDING_REVIEW', 'CONFIRMED']);
-
-export const CreateResumeRequestSchema = z
-  .object({
-    title: z.string().trim().min(1).max(120),
-    sourceText: z.string().trim().min(1).max(50_000),
-  })
-  .strict();
-
-export type CreateResumeRequest = z.infer<typeof CreateResumeRequestSchema>;
 
 export const CreateResumeFileRequestSchema = z
   .object({
@@ -105,23 +96,13 @@ export const ResumeDetailResponseSchema = z
   })
   .strict();
 
-export const VacancySourceTypeSchema = z.enum(['TEXT', 'FILE']);
+export const VacancySourceTypeSchema = z.literal('FILE');
 export const ApplicationCaseStatusSchema = z.enum([
   'DRAFT',
   'ANALYZING',
   'ANALYSIS_READY',
   'FAILED',
 ]);
-
-export const CreateApplicationCaseRequestSchema = z
-  .object({
-    title: z.string().trim().min(1).max(180),
-    resumeId: z.string().trim().min(1).max(128),
-    vacancyText: z.string().trim().min(1).max(50_000),
-  })
-  .strict();
-
-export type CreateApplicationCaseRequest = z.infer<typeof CreateApplicationCaseRequestSchema>;
 
 export const CreateApplicationCaseFileRequestSchema = z
   .object({

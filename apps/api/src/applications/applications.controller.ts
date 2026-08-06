@@ -13,7 +13,6 @@ import {
 import { CurrentSession, type AuthenticatedSession } from '../auth/authentication.guard.js';
 import {
   parseCreateApplicationCaseFileRequest,
-  parseCreateApplicationCaseRequest,
   parseAnalysisRunId,
   parseArtifactId,
   parseApplicationCaseId,
@@ -30,22 +29,6 @@ import {
 @Controller('applications')
 export class ApplicationsController {
   constructor(private readonly applicationsService: ApplicationsService) {}
-
-  @Post()
-  async createTextDraft(
-    @CurrentSession() session: AuthenticatedSession,
-    @Body() body: unknown,
-  ) {
-    const applicationCase = await this.applicationsService.createTextDraftForUser(
-      session.user.id,
-      parseCreateApplicationCaseRequest(body),
-    );
-
-    return ApplicationCaseResponseSchema.parse({
-      schemaVersion: API_SCHEMA_VERSION,
-      applicationCase,
-    });
-  }
 
   @Post('file')
   @UseInterceptors(

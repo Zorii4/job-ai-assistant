@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { API_SCHEMA_VERSION } from '@job-ai-assistant/contracts';
@@ -92,7 +92,7 @@ test('loads the authenticated resume library', async (t) => {
         {
           id: 'resume_1',
           title: 'Product Manager',
-          sourceType: 'TEXT',
+          sourceType: 'FILE',
           sanitizationStatus: 'PENDING_REVIEW',
           confirmedAt: null,
           createdAt: '2026-07-28T12:00:00.000Z',
@@ -123,84 +123,6 @@ test('reads the current user only from the server session endpoint', async (t) =
 
   const user = await getCurrentUser('http://api.test');
   assert.equal(user.emailVerified, true);
-});
-
-test('creates a text resume through an authenticated request', async (t) => {
-  const originalFetch = globalThis.fetch;
-
-  t.after(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  globalThis.fetch = async (input, init) => {
-    assert.equal(input, 'http://api.test/resumes');
-    assert.equal(init?.method, 'POST');
-    assert.equal(init?.credentials, 'include');
-    assert.deepEqual(init?.headers, { 'Content-Type': 'application/json' });
-    assert.equal(init?.body, JSON.stringify({ title: 'Product Manager', sourceText: 'Опыт' }));
-
-    return Response.json({
-      schemaVersion: API_SCHEMA_VERSION,
-      resume: {
-        id: 'resume_1',
-        title: 'Product Manager',
-        sourceType: 'TEXT',
-        sanitizationStatus: 'PENDING_REVIEW',
-        confirmedAt: null,
-        createdAt: '2026-07-28T12:00:00.000Z',
-        updatedAt: '2026-07-28T12:00:00.000Z',
-      },
-    });
-  };
-
-  const resume = await createTextResume('http://api.test', {
-    title: 'Product Manager',
-    sourceText: 'Опыт',
-  });
-
-  assert.equal(resume.id, 'resume_1');
-});
-
-test('creates a vacancy and polls its analysis using the authenticated API', async (t) => {
-  const originalFetch = globalThis.fetch;
-  const requests: Array<{ input: RequestInfo | URL; init: RequestInit | undefined }> = [];
-
-  t.after(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  globalThis.fetch = async (input, init) => {
-    requests.push({ input, init });
-
-    if (requests.length === 1) {
-      return Response.json({
-        schemaVersion: API_SCHEMA_VERSION,
-        applicationCase: {
-          id: 'application_1', title: 'Backend developer', resumeId: 'resume_1', vacancySourceType: 'TEXT',
-          status: 'DRAFT', currentStage: 'DRAFT', createdAt: '2026-08-03T18:00:00.000Z', updatedAt: '2026-08-03T18:00:00.000Z',
-        },
-      });
-    }
-
-    return Response.json({
-      schemaVersion: API_SCHEMA_VERSION,
-      analysisRun: {
-        id: 'run_1', applicationCaseId: 'application_1', workflowType: 'INITIAL_ANALYSIS', status: 'RUNNING',
-        currentStage: 'producer', errorCode: null, createdAt: '2026-08-03T18:00:00.000Z', updatedAt: '2026-08-03T18:00:01.000Z',
-      },
-    });
-  };
-
-  const applicationCase = await createTextApplicationCase('http://api.test', {
-    title: 'Backend developer', resumeId: 'resume_1', vacancyText: 'Node.js developer',
-  });
-  const run = await getInitialAnalysisStatus('http://api.test', applicationCase.id, 'run_1');
-
-  assert.equal(requests[0]?.input, 'http://api.test/applications');
-  assert.equal(requests[0]?.init?.method, 'POST');
-  assert.equal(requests[0]?.init?.credentials, 'include');
-  assert.equal(requests[1]?.input, 'http://api.test/applications/application_1/analysis/run_1');
-  assert.equal(run.currentStage, 'producer');
 });
 
 test('reads the completed markdown result from the owner-only endpoint', async (t) => {

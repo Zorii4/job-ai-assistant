@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { HttpException, NotFoundException } from '@nestjs/common';
@@ -13,7 +13,7 @@ function createRecord(userId: string) {
   return {
     id: 'resume-1',
     title: 'Frontend resume',
-    sourceType: 'TEXT' as const,
+    sourceType: 'FILE' as const,
     sanitizationStatus: 'PENDING_REVIEW' as const,
     confirmedAt: null,
     createdAt,
@@ -29,58 +29,6 @@ function createDetailRecord(userId: string) {
     sanitizationVersion: 'resume-sanitization-v3',
   };
 }
-
-test('creates a text draft without returning source text', async () => {
-  let createArguments: unknown;
-  const database = {
-    resume: {
-      async findMany() {
-        return [];
-      },
-      async create(arguments_: unknown) {
-        createArguments = arguments_;
-        return createRecord(firstUserId);
-      },
-    },
-  };
-  const service = new ResumesService(database as never);
-
-  const result = await service.createTextDraft(firstUserId, {
-    title: 'Frontend resume',
-    sourceText: 'private source text',
-  });
-
-  assert.deepEqual(result, {
-    id: 'resume-1',
-    title: 'Frontend resume',
-    sourceType: 'TEXT',
-    sanitizationStatus: 'PENDING_REVIEW',
-    confirmedAt: null,
-    createdAt: '2026-07-28T12:00:00.000Z',
-    updatedAt: '2026-07-28T12:00:00.000Z',
-  });
-  assert.deepEqual(createArguments, {
-    data: {
-      userId: firstUserId,
-      slot: 1,
-      title: 'Frontend resume',
-      sourceType: 'TEXT',
-      sourceText: 'private source text',
-      sanitizedText: 'private source text',
-      sanitizationStatus: 'PENDING_REVIEW',
-      sanitizationVersion: 'resume-sanitization-v3',
-    },
-    select: {
-      id: true,
-      title: true,
-      sourceType: true,
-      sanitizationStatus: true,
-      confirmedAt: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
-});
 
 test('does not return another users resume', async () => {
   let findArguments: unknown;
@@ -194,7 +142,7 @@ test('rejects a sixth resume before creating it', async () => {
   const service = new ResumesService(database as never);
 
   await assert.rejects(
-    service.createTextDraft(firstUserId, { title: 'Sixth', sourceText: 'Опыт' }),
+    service.createFileDraft(firstUserId, { title: 'Sixth' }, { sourceFileName: 'resume.txt', sourceText: 'Опыт' }),
     (error: unknown) => error instanceof HttpException && error.getStatus() === 429,
   );
   assert.equal(createCalled, false);
@@ -286,7 +234,7 @@ test('returns only the edited sanitized text for a resume preview', async () => 
   assert.deepEqual(resume, {
     id: 'resume-1',
     title: 'Frontend resume',
-    sourceType: 'TEXT',
+    sourceType: 'FILE',
     sanitizationStatus: 'PENDING_REVIEW',
     confirmedAt: null,
     createdAt: '2026-07-28T12:00:00.000Z',
