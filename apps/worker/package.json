@@ -11,6 +11,6 @@
   "dependencies": {
     "@job-ai-assistant/contracts": "*",
     "pg": "^8.22.0",
-    "pg-boss": "^12.26.2"
+    "pg-boss": "^12.27.0"
   }
 }

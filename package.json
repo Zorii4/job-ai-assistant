@@ -38,9 +38,9 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "grammy": "^1.44.0",
-    "openai": "^6.45.0",
-    "pdf-parse": "^1.1.1",
+    "grammy": "^1.45.1",
+    "openai": "^7.4.0",
+    "pdf-parse": "^2.4.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
