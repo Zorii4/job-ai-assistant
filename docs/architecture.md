@@ -34,6 +34,8 @@ Initial AI workflow
 
 - `apps/web` — React + Vite frontend. Текущая UI-реализация покрывает библиотеку
   резюме, preview обезличенной версии, создание вакансии и polling initial-analysis run.
+  Библиотека, создание вакансии и результат анализа доступны по отдельным URL, поэтому
+  их можно открыть напрямую и безопасно повторно загрузить в браузере.
 - `apps/api` — NestJS API. В нём реализованы healthcheck, server-side session
   guard, endpoints библиотеки резюме и создание файлового черновика вакансии.
 - `packages/contracts` — shared Zod runtime contracts для public API.

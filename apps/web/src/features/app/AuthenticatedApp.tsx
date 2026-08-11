@@ -1,0 +1,38 @@
+import { useCallback, useEffect, useState } from 'react';
+
+import { ApiRequestError, getApiBaseUrl, getApiHealth } from '../../api';
+import type { CurrentUser } from '../../api';
+import { getAppRoutePath } from '../../routing';
+import { AnalysisResultPage } from '../analyses/AnalysisResultPage';
+import { CreateVacancyPage } from '../applications/CreateVacancyPage';
+import { useAppRouter } from '../navigation/useAppRouter';
+import { ResumeLibrary } from '../resumes/ResumeLibrary';
+
+type ApiState = 'loading' | 'ready' | 'error';
+
+export function AuthenticatedApp({ user, logoutError, onSignOut }: { user: CurrentUser; logoutError: string | null; onSignOut: () => Promise<void> }) {
+  const { route, navigate } = useAppRouter();
+  const [apiState, setApiState] = useState<ApiState>('loading');
+  const checkApiHealth = useCallback(async () => {
+    setApiState('loading');
+    try { await getApiHealth(getApiBaseUrl()); setApiState('ready'); } catch { setApiState('error'); }
+  }, []);
+  useEffect(() => { void checkApiHealth(); }, [checkApiHealth]);
+
+  return <main className="app-shell">
+    <header className="app-header">
+      <div><p className="eyebrow">JOB AI ASSISTANT</p><nav className="app-nav" aria-label="Основная навигация"><button className="nav-link" type="button" aria-current={route.name === 'resumes' ? 'page' : undefined} onClick={() => navigate({ name: 'resumes' })}>Резюме</button><button className="nav-link" type="button" aria-current={route.name === 'new-application' ? 'page' : undefined} onClick={() => navigate({ name: 'new-application' })}>Новая вакансия</button></nav></div>
+      <div className="header-actions"><p className={`connection-state connection-state--${apiState}`} role="status"><span aria-hidden="true" />{apiState === 'loading' && 'Проверяем API'}{apiState === 'ready' && 'API подключён'}{apiState === 'error' && 'Нет подключения к API'}</p><button className="button button--secondary button--small" type="button" onClick={() => void onSignOut()}>Выйти ({user.email})</button></div>
+    </header>
+    {logoutError !== null && <p className="form-message form-message--error" role="alert">{logoutError}</p>}
+    {apiState === 'error' && <section className="notice notice--error" aria-labelledby="api-error-title"><div><h2 id="api-error-title">Не удалось подключиться к API</h2><p>Проверьте, что API запущен, и повторите попытку.</p></div><button className="button button--secondary" type="button" onClick={() => void checkApiHealth()}>Повторить</button></section>}
+    {route.name === 'resumes' && <ResumeLibrary />}
+    {route.name === 'new-application' && <CreateVacancyPage onCreated={(applicationCaseId, runId) => navigate({ name: 'analysis-result', applicationCaseId, runId })} />}
+    {route.name === 'analysis-result' && <AnalysisResultPage applicationCaseId={route.applicationCaseId} runId={route.runId} />}
+    {route.name === 'not-found' && <section className="empty-page"><h1>Страница не найдена</h1><p>Проверьте адрес или вернитесь в библиотеку резюме.</p><button className="button button--primary" type="button" onClick={() => navigate({ name: 'resumes' })}>Открыть резюме</button></section>}
+  </main>;
+}
+
+export function getResultPath(applicationCaseId: string, runId: string) {
+  return getAppRoutePath({ name: 'analysis-result', applicationCaseId, runId });
+}
