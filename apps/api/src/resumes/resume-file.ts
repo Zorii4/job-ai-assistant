@@ -3,6 +3,8 @@ import { extname, basename } from 'node:path';
 
 import pdfParse from 'pdf-parse';
 
+import { extractPdfTextItems, normalizePdfTextItemsToMarkdown } from './resume-pdf-structure.js';
+
 const MAX_RESUME_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_EXTRACTED_TEXT_LENGTH = 50_000;
 
@@ -97,8 +99,7 @@ function decodeTextFile(buffer: Buffer): string {
 
 async function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
   try {
-    const parsed = await pdfParse(buffer);
-    const text = parsed.text.trim();
+    const text = normalizePdfTextItemsToMarkdown(await extractPdfTextItems(buffer));
 
     if (text.length === 0) {
       throw new Error('PDF has no extractable text');
@@ -106,6 +107,17 @@ async function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
 
     return text;
   } catch {
-    throw new BadRequestException();
+    try {
+      const parsed = await pdfParse(buffer);
+      const text = parsed.text.trim();
+
+      if (text.length === 0) {
+        throw new Error('PDF has no extractable text');
+      }
+
+      return text;
+    } catch {
+      throw new BadRequestException();
+    }
   }
 }

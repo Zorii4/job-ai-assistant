@@ -47,3 +47,34 @@ test('keeps unlabelled employer and university mentions for user review', () => 
     'Example Systems — компания разработки. Example State University — образование.',
   );
 });
+
+test('preserves Markdown headings, lists, tables and section order while sanitizing identifiers', () => {
+  const sourceText = [
+    '# Опыт работы',
+    '',
+    '- Компания: ООО Пример',
+    '- Email: candidate@example.test',
+    '',
+    '## Навыки',
+    '',
+    '| Год | Роль |',
+    '| --- | --- |',
+    '| 2025 | Backend developer |',
+  ].join('\n');
+
+  assert.equal(
+    sanitizeDirectIdentifiers(sourceText).sanitizedText,
+    [
+      '# Опыт работы',
+      '',
+      '- Компания: [EMPLOYER_1]',
+      '- Email: [EMAIL_1]',
+      '',
+      '## Навыки',
+      '',
+      '| Год | Роль |',
+      '| --- | --- |',
+      '| 2025 | Backend developer |',
+    ].join('\n'),
+  );
+});
