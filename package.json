@@ -44,10 +44,10 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^20.14.12",
+    "@types/node": "^26.2.0",
     "@types/pdf-parse": "^1.1.4",
     "prisma": "^7.9.1",
-    "tsx": "^4.16.2",
-    "typescript": "^5.5.4"
+    "tsx": "^4.23.11",
+    "typescript": "^7.0.2"
   }
 }
