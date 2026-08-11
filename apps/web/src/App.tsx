@@ -4,7 +4,7 @@ import { ApiRequestError, getApiBaseUrl, getCurrentUser, signOut } from './api';
 import type { CurrentUser } from './api';
 import { AuthScreen, AuthShell, getInitialAuthView } from './features/auth/AuthScreen';
 import type { AuthView } from './features/auth/AuthScreen';
-import { ResumeLibrary } from './features/resumes/ResumeLibrary';
+import { AuthenticatedApp } from './features/app/AuthenticatedApp';
 
 export function App() {
   const [sessionState, setSessionState] = useState<'loading' | 'authenticated' | 'anonymous'>('loading');
@@ -51,7 +51,7 @@ export function App() {
   }
 
   if (sessionState === 'authenticated' && user !== null && user.emailVerified) {
-    return <ResumeLibrary user={user} logoutError={logoutError} onSignOut={handleSignOut} />;
+    return <AuthenticatedApp user={user} logoutError={logoutError} onSignOut={handleSignOut} />;
   }
 
   return (

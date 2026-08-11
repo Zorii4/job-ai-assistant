@@ -33,6 +33,21 @@ test('extracts a UTF-8 TXT resume and clears the original upload buffer', async 
   assert.equal(file.buffer.every((byte) => byte === 0), true);
 });
 
+test('preserves Markdown source structure during file extraction', async () => {
+  const markdown = '# Опыт\n\n- TypeScript\n- NestJS\n\n| Год | Роль |\n| --- | --- |\n| 2025 | Backend developer |';
+  const file = createUpload({
+    originalname: 'resume.md',
+    mimetype: 'text/markdown',
+    buffer: Buffer.from(markdown, 'utf8'),
+    size: Buffer.byteLength(markdown),
+  });
+
+  const result = await extractUploadedResumeFile(file);
+
+  assert.equal(result.sourceText, markdown);
+  assert.equal(file.buffer.every((byte) => byte === 0), true);
+});
+
 test('rejects a file with an unsupported MIME type before extraction', () => {
   let accepted: boolean | undefined;
   filterResumeUpload(
