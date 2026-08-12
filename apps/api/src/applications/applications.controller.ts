@@ -17,6 +17,7 @@ import {
   parseArtifactId,
   parseApplicationCaseId,
   parseUpdateArtifactRequest,
+  parseUpdateInitialAnalysisResultRequest,
 } from './applications.request.js';
 import { ApplicationsService } from './applications.service.js';
 import {
@@ -151,5 +152,30 @@ export class ApplicationsController {
       schemaVersion: API_SCHEMA_VERSION,
       analysisResult,
     });
+  }
+
+  @Patch(':applicationCaseId/analysis/:analysisRunId/result')
+  async updateInitialAnalysisResult(
+    @CurrentSession() session: AuthenticatedSession,
+    @Param('applicationCaseId') applicationCaseId: string,
+    @Param('analysisRunId') analysisRunId: string,
+    @Body() body: unknown,
+  ) {
+    const analysisResult = await this.applicationsService.updateInitialAnalysisResultForUser(
+      session.user.id, parseApplicationCaseId(applicationCaseId), parseAnalysisRunId(analysisRunId), parseUpdateInitialAnalysisResultRequest(body),
+    );
+    return InitialAnalysisResultResponseSchema.parse({ schemaVersion: API_SCHEMA_VERSION, analysisResult });
+  }
+
+  @Delete(':applicationCaseId/analysis/:analysisRunId/result/edited-markdown')
+  async resetInitialAnalysisResult(
+    @CurrentSession() session: AuthenticatedSession,
+    @Param('applicationCaseId') applicationCaseId: string,
+    @Param('analysisRunId') analysisRunId: string,
+  ) {
+    const analysisResult = await this.applicationsService.resetInitialAnalysisResultForUser(
+      session.user.id, parseApplicationCaseId(applicationCaseId), parseAnalysisRunId(analysisRunId),
+    );
+    return InitialAnalysisResultResponseSchema.parse({ schemaVersion: API_SCHEMA_VERSION, analysisResult });
   }
 }

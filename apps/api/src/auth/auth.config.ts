@@ -49,7 +49,7 @@ export const auth = betterAuth({
     requireEmailVerification: true,
     revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user, url }) => {
-      dispatchAuthenticationEmail(
+      await dispatchAuthenticationEmail(
         emailProvider,
         createPasswordResetEmail({ to: user.email, url }),
       );
@@ -59,7 +59,7 @@ export const auth = betterAuth({
     sendOnSignUp: true,
     sendOnSignIn: true,
     sendVerificationEmail: async ({ user, url }) => {
-      dispatchAuthenticationEmail(
+      await dispatchAuthenticationEmail(
         emailProvider,
         createVerificationEmail({ to: user.email, url }),
       );

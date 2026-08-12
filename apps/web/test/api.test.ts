@@ -18,6 +18,8 @@ import {
   signOut,
   updateArtifact,
   resetArtifactToGeneratedContent,
+  updateInitialAnalysisResult,
+  resetInitialAnalysisResult,
 } from '../src/api.js';
 
 test('accepts a valid API healthcheck response', async (t) => {
@@ -134,11 +136,23 @@ test('reads the completed markdown result from the owner-only endpoint', async (
     assert.equal(init?.credentials, 'include');
     return Response.json({
       schemaVersion: API_SCHEMA_VERSION,
-      analysisResult: { id: 'run_1', applicationCaseId: 'application_1', finalMarkdown: '# Готово' },
+      analysisResult: { id: 'run_1', applicationCaseId: 'application_1', finalMarkdown: '# Готово', editedFinalMarkdown: null },
     });
   };
 
-  assert.equal(await getInitialAnalysisResult('http://api.test', 'application_1', 'run_1'), '# Готово');
+  assert.equal((await getInitialAnalysisResult('http://api.test', 'application_1', 'run_1')).finalMarkdown, '# Готово');
+});
+
+test('saves and resets the independently edited full report', async (t) => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ input: RequestInfo | URL; init: RequestInit | undefined }> = [];
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async (input, init) => { requests.push({ input, init }); return Response.json({ schemaVersion: API_SCHEMA_VERSION, analysisResult: { id: 'run_1', applicationCaseId: 'application_1', finalMarkdown: '# AI', editedFinalMarkdown: init?.method === 'PATCH' ? '# Моё' : null } }); };
+  assert.equal((await updateInitialAnalysisResult('http://api.test', 'application_1', 'run_1', '# Моё')).editedFinalMarkdown, '# Моё');
+  assert.equal((await resetInitialAnalysisResult('http://api.test', 'application_1', 'run_1')).editedFinalMarkdown, null);
+  assert.equal(requests[0]?.init?.method, 'PATCH');
+  assert.equal(requests[0]?.init?.body, JSON.stringify({ editedFinalMarkdown: '# Моё' }));
+  assert.equal(requests[1]?.init?.method, 'DELETE');
 });
 
 test('reads, saves and resets an analysis material with session cookies', async (t) => {

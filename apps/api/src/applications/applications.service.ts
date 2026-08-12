@@ -13,6 +13,7 @@ import type {
   AnalysisRunSummary,
   CreateApplicationCaseFileRequest,
   UpdateArtifactRequest,
+  UpdateInitialAnalysisResultRequest,
 } from '@job-ai-assistant/contracts';
 
 import { prisma } from '../database/prisma.service.js';
@@ -59,6 +60,7 @@ const initialAnalysisResultSelect = {
   applicationCaseId: true,
   status: true,
   finalMarkdown: true,
+  editedFinalMarkdown: true,
 } as const;
 
 type AnalysisRunRecord = {
@@ -218,7 +220,51 @@ export class ApplicationsService {
       id: analysisRun.id,
       applicationCaseId: analysisRun.applicationCaseId,
       finalMarkdown: analysisRun.finalMarkdown,
+      editedFinalMarkdown: analysisRun.editedFinalMarkdown,
     };
+  }
+
+  async updateInitialAnalysisResultForUser(
+    userId: string,
+    applicationCaseId: string,
+    analysisRunId: string,
+    input: UpdateInitialAnalysisResultRequest,
+  ): Promise<InitialAnalysisResult> {
+    const analysisRun = await this.getEditableInitialAnalysisRunForUser(userId, applicationCaseId, analysisRunId);
+    const updated = await this.database.analysisRun.update({
+      where: { id: analysisRun.id },
+      data: { editedFinalMarkdown: input.editedFinalMarkdown },
+      select: initialAnalysisResultSelect,
+    });
+
+    return toInitialAnalysisResult(updated);
+  }
+
+  async resetInitialAnalysisResultForUser(
+    userId: string,
+    applicationCaseId: string,
+    analysisRunId: string,
+  ): Promise<InitialAnalysisResult> {
+    const analysisRun = await this.getEditableInitialAnalysisRunForUser(userId, applicationCaseId, analysisRunId);
+    const updated = await this.database.analysisRun.update({
+      where: { id: analysisRun.id },
+      data: { editedFinalMarkdown: null },
+      select: initialAnalysisResultSelect,
+    });
+
+    return toInitialAnalysisResult(updated);
+  }
+
+  private async getEditableInitialAnalysisRunForUser(userId: string, applicationCaseId: string, analysisRunId: string) {
+    const analysisRun = await this.database.analysisRun.findFirst({
+      where: { id: analysisRunId, applicationCaseId, workflowType: 'INITIAL_ANALYSIS', applicationCase: { userId } },
+      select: initialAnalysisResultSelect,
+    });
+
+    if (analysisRun === null) throw new NotFoundException();
+    if (analysisRun.status !== 'SUCCEEDED' || analysisRun.finalMarkdown === null) throw new BadRequestException('Initial analysis result is not ready.');
+
+    return analysisRun;
   }
 
   async getArtifactsForUser(userId: string, applicationCaseId: string): Promise<ArtifactSummary[]> {
@@ -373,4 +419,10 @@ function toAnalysisRunSummary(record: AnalysisRunRecord): AnalysisRunSummary {
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   };
+}
+
+function toInitialAnalysisResult(record: { id: string; applicationCaseId: string; finalMarkdown: string | null; editedFinalMarkdown: string | null; status: string }): InitialAnalysisResult {
+  if (record.status !== 'SUCCEEDED' || record.finalMarkdown === null) throw new Error('Initial analysis result is not ready.');
+
+  return { id: record.id, applicationCaseId: record.applicationCaseId, finalMarkdown: record.finalMarkdown, editedFinalMarkdown: record.editedFinalMarkdown };
 }

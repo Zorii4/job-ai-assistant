@@ -16,7 +16,7 @@ import type {
 import { prisma } from '../database/prisma.service.js';
 import { sanitizeDirectIdentifiers } from './resume-sanitizer.js';
 
-const SANITIZATION_VERSION = 'resume-sanitization-v3';
+const SANITIZATION_VERSION = 'resume-sanitization-v4';
 const MAX_RESUMES_PER_USER = 5;
 
 const resumeSummarySelect = {
