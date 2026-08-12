@@ -27,5 +27,15 @@ export function ResumeMarkdownPreview({ markdown }: { markdown: string }) {
   })}</div>;
 }
 
-function renderInline(text: string): ReactNode[] { const parts = text.split(/(\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g); return parts.map((part, index) => { const match = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(part); return match ? <a key={index} href={match[2]} target="_blank" rel="noreferrer">{match[1]}</a> : part; }); }
+function renderInline(text: string): ReactNode[] { const parts = text.split(/(\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g); return parts.map((part, index) => { const match = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(part); const safeUrl = match ? getSafeHttpUrl(match[2]) : null; return match && safeUrl ? <a key={index} href={safeUrl} target="_blank" rel="noreferrer">{match[1]}</a> : part; }); }
 function parseTableRow(line: string): string[] { return line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim()); }
+
+export function getSafeHttpUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
