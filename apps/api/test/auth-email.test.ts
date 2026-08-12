@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   createPasswordResetEmail,
   createVerificationEmail,
+  dispatchAuthenticationEmail,
 } from '../src/auth/auth-email.js';
 
 test('verification email keeps the verification URL intact in text and escapes it in HTML', () => {
@@ -26,4 +27,13 @@ test('password reset email has a dedicated subject and action', () => {
 
   assert.match(email.subject, /Восстановление доступа/);
   assert.match(email.html, /Задать новый пароль/);
+});
+
+test('does not hide an authentication-email delivery failure', async () => {
+  await assert.rejects(
+    dispatchAuthenticationEmail({ async send() { throw new Error('provider rejected'); } }, {
+      to: 'person@example.test', subject: 'Subject', text: 'Text', html: '<p>Text</p>',
+    }),
+    /Authentication email delivery failed/,
+  );
 });

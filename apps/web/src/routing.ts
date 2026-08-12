@@ -2,6 +2,7 @@ export type AppRoute =
   | { name: 'resumes' }
   | { name: 'new-application' }
   | { name: 'analysis-result'; applicationCaseId: string; runId: string }
+  | { name: 'privacy-policy' }
   | { name: 'not-found' };
 
 const analysisResultPattern = /^\/applications\/([^/]+)\/analysis\/([^/]+)$/;
@@ -13,6 +14,10 @@ export function parseAppRoute(pathname: string): AppRoute {
 
   if (pathname === '/applications/new') {
     return { name: 'new-application' };
+  }
+
+  if (pathname === '/privacy-policy') {
+    return { name: 'privacy-policy' };
   }
 
   const analysisResultMatch = pathname.match(analysisResultPattern);
@@ -38,6 +43,7 @@ export function parseAppRoute(pathname: string): AppRoute {
 export function getAppRoutePath(route: Exclude<AppRoute, { name: 'not-found' }>): string {
   if (route.name === 'resumes') return '/resumes';
   if (route.name === 'new-application') return '/applications/new';
+  if (route.name === 'privacy-policy') return '/privacy-policy';
 
   return `/applications/${encodeURIComponent(route.applicationCaseId)}/analysis/${encodeURIComponent(route.runId)}`;
 }

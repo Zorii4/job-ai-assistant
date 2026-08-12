@@ -6,6 +6,7 @@ import { getAppRoutePath } from '../../routing';
 import { AnalysisResultPage } from '../analyses/AnalysisResultPage';
 import { CreateVacancyPage } from '../applications/CreateVacancyPage';
 import { useAppRouter } from '../navigation/useAppRouter';
+import { PrivacyPolicyPlaceholderPage } from '../privacy/PrivacyPolicyPlaceholderPage';
 import { ResumeLibrary } from '../resumes/ResumeLibrary';
 
 type ApiState = 'loading' | 'ready' | 'error';
@@ -29,6 +30,7 @@ export function AuthenticatedApp({ user, logoutError, onSignOut }: { user: Curre
     {route.name === 'resumes' && <ResumeLibrary />}
     {route.name === 'new-application' && <CreateVacancyPage onCreated={(applicationCaseId, runId) => navigate({ name: 'analysis-result', applicationCaseId, runId })} />}
     {route.name === 'analysis-result' && <AnalysisResultPage applicationCaseId={route.applicationCaseId} runId={route.runId} />}
+    {route.name === 'privacy-policy' && <PrivacyPolicyPlaceholderPage onBack={() => navigate({ name: 'resumes' })} />}
     {route.name === 'not-found' && <section className="empty-page"><h1>Страница не найдена</h1><p>Проверьте адрес или вернитесь в библиотеку резюме.</p><button className="button button--primary" type="button" onClick={() => navigate({ name: 'resumes' })}>Открыть резюме</button></section>}
   </main>;
 }

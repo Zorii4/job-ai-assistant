@@ -401,6 +401,7 @@ test('returns completed initial analysis markdown only to the vacancy owner', as
           applicationCaseId: 'application-1',
           status: 'SUCCEEDED' as const,
           finalMarkdown: '# Итоговый отчёт',
+          editedFinalMarkdown: null,
         };
       },
     },
@@ -413,6 +414,7 @@ test('returns completed initial analysis markdown only to the vacancy owner', as
     id: 'run-1',
     applicationCaseId: 'application-1',
     finalMarkdown: '# Итоговый отчёт',
+    editedFinalMarkdown: null,
   });
   assert.deepEqual(findArguments, {
     where: {
@@ -426,6 +428,7 @@ test('returns completed initial analysis markdown only to the vacancy owner', as
       applicationCaseId: true,
       status: true,
       finalMarkdown: true,
+      editedFinalMarkdown: true,
     },
   });
 });
@@ -439,6 +442,7 @@ test('does not return an incomplete or foreign initial analysis result', async (
           applicationCaseId: 'application-1',
           status: 'RUNNING' as const,
           finalMarkdown: null,
+          editedFinalMarkdown: null,
         };
       },
     },
@@ -467,6 +471,111 @@ test('does not return an incomplete or foreign initial analysis result', async (
     ),
     (error: unknown) => error instanceof NotFoundException,
   );
+});
+
+test('stores an edited full report without changing the generated report', async () => {
+  let updateArguments: unknown;
+  const database = {
+    analysisRun: {
+      async findFirst() {
+        return {
+          id: 'run-1',
+          applicationCaseId: 'application-1',
+          status: 'SUCCEEDED' as const,
+          finalMarkdown: '# AI report',
+          editedFinalMarkdown: null,
+        };
+      },
+      async update(arguments_: unknown) {
+        updateArguments = arguments_;
+        return {
+          id: 'run-1',
+          applicationCaseId: 'application-1',
+          status: 'SUCCEEDED' as const,
+          finalMarkdown: '# AI report',
+          editedFinalMarkdown: '# My report',
+        };
+      },
+    },
+  };
+
+  const result = await new ApplicationsService(database as never).updateInitialAnalysisResultForUser(
+    'user-1', 'application-1', 'run-1', { editedFinalMarkdown: '# My report' },
+  );
+
+  assert.deepEqual(result, {
+    id: 'run-1',
+    applicationCaseId: 'application-1',
+    finalMarkdown: '# AI report',
+    editedFinalMarkdown: '# My report',
+  });
+  assert.deepEqual(updateArguments, {
+    where: { id: 'run-1' },
+    data: { editedFinalMarkdown: '# My report' },
+    select: {
+      id: true,
+      applicationCaseId: true,
+      status: true,
+      finalMarkdown: true,
+      editedFinalMarkdown: true,
+    },
+  });
+});
+
+test('does not edit a full report outside the vacancy owner scope', async () => {
+  const database = { analysisRun: { async findFirst() { return null; } } };
+
+  await assert.rejects(
+    new ApplicationsService(database as never).updateInitialAnalysisResultForUser(
+      'user-2', 'application-1', 'run-1', { editedFinalMarkdown: '# My report' },
+    ),
+    (error: unknown) => error instanceof NotFoundException,
+  );
+});
+
+test('resets only the edited full report to the generated report', async () => {
+  let updateArguments: unknown;
+  const database = {
+    analysisRun: {
+      async findFirst() {
+        return {
+          id: 'run-1',
+          applicationCaseId: 'application-1',
+          status: 'SUCCEEDED' as const,
+          finalMarkdown: '# AI report',
+          editedFinalMarkdown: '# My report',
+        };
+      },
+      async update(arguments_: unknown) {
+        updateArguments = arguments_;
+        return {
+          id: 'run-1',
+          applicationCaseId: 'application-1',
+          status: 'SUCCEEDED' as const,
+          finalMarkdown: '# AI report',
+          editedFinalMarkdown: null,
+        };
+      },
+    },
+  };
+
+  const result = await new ApplicationsService(database as never).resetInitialAnalysisResultForUser(
+    'user-1', 'application-1', 'run-1',
+  );
+
+  assert.equal(result.finalMarkdown, '# AI report');
+  assert.equal(result.editedFinalMarkdown, null);
+  assert.deepEqual(updateArguments, {
+    where: { id: 'run-1' },
+    data: { editedFinalMarkdown: null },
+    select: {
+      id: true,
+      applicationCaseId: true,
+      status: true,
+      finalMarkdown: true,
+      editedFinalMarkdown: true,
+    },
+  });
 });
 
 test('lists artifacts only for the vacancy owner', async () => {

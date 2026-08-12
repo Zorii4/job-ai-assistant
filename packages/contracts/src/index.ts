@@ -164,10 +164,17 @@ export const InitialAnalysisResultSchema = z
     id: z.string().min(1),
     applicationCaseId: z.string().min(1),
     finalMarkdown: z.string().min(1),
+    editedFinalMarkdown: z.string().min(1).nullable(),
   })
   .strict();
 
 export type InitialAnalysisResult = z.infer<typeof InitialAnalysisResultSchema>;
+
+export const UpdateInitialAnalysisResultRequestSchema = z.object({
+  editedFinalMarkdown: z.string().trim().min(1).max(50_000),
+}).strict();
+
+export type UpdateInitialAnalysisResultRequest = z.infer<typeof UpdateInitialAnalysisResultRequestSchema>;
 
 export const InitialAnalysisResultResponseSchema = z
   .object({

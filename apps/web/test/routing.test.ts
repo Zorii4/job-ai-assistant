@@ -7,6 +7,8 @@ test('parses the library and vacancy creation routes', () => {
   assert.deepEqual(parseAppRoute('/'), { name: 'resumes' });
   assert.deepEqual(parseAppRoute('/resumes'), { name: 'resumes' });
   assert.deepEqual(parseAppRoute('/applications/new'), { name: 'new-application' });
+  assert.deepEqual(parseAppRoute('/privacy-policy'), { name: 'privacy-policy' });
+  assert.equal(getAppRoutePath({ name: 'privacy-policy' }), '/privacy-policy');
 });
 
 test('parses and serializes an analysis result route', () => {

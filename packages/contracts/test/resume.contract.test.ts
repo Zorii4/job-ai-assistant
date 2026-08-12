@@ -12,6 +12,7 @@ import {
   AnalysisRunResponseSchema,
   CreateApplicationCaseFileRequestSchema,
   UpdateArtifactRequestSchema,
+  UpdateInitialAnalysisResultRequestSchema,
   API_SCHEMA_VERSION,
   ResumeSourceTypeSchema,
   VacancySourceTypeSchema,
@@ -37,6 +38,37 @@ test('accepts an edited artifact but rejects blank or unexpected content', () =>
   assert.equal(UpdateArtifactRequestSchema.safeParse({ editedContent: '  ' }).success, false);
   assert.equal(
     UpdateArtifactRequestSchema.safeParse({ editedContent: 'Моя версия', generatedContent: 'AI version' }).success,
+    false,
+  );
+});
+
+test('validates an edited full report independently from the generated report', () => {
+  assert.equal(
+    UpdateInitialAnalysisResultRequestSchema.safeParse({ editedFinalMarkdown: '# Моя версия отчёта' }).success,
+    true,
+  );
+  assert.equal(UpdateInitialAnalysisResultRequestSchema.safeParse({ editedFinalMarkdown: '  ' }).success, false);
+  assert.equal(
+    InitialAnalysisResultResponseSchema.safeParse({
+      schemaVersion: API_SCHEMA_VERSION,
+      analysisResult: {
+        id: 'run-1',
+        applicationCaseId: 'application-1',
+        finalMarkdown: '# Версия AI',
+        editedFinalMarkdown: null,
+      },
+    }).success,
+    true,
+  );
+  assert.equal(
+    InitialAnalysisResultResponseSchema.safeParse({
+      schemaVersion: API_SCHEMA_VERSION,
+      analysisResult: {
+        id: 'run-1',
+        applicationCaseId: 'application-1',
+        finalMarkdown: '# Версия AI',
+      },
+    }).success,
     false,
   );
 });

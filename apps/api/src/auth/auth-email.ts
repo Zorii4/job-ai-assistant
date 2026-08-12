@@ -52,11 +52,14 @@ export function createPasswordResetEmail(input: {
   });
 }
 
-export function dispatchAuthenticationEmail(
+export async function dispatchAuthenticationEmail(
   provider: EmailProvider,
   message: EmailMessage,
-): void {
-  void provider.send(message).catch(() => {
-    console.error('Authentication email delivery failed.');
-  });
+): Promise<void> {
+  try {
+    await provider.send(message);
+  } catch {
+    console.error('AUTH_EMAIL_DELIVERY_FAILED');
+    throw new Error('Authentication email delivery failed.');
+  }
 }

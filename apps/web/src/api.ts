@@ -8,6 +8,7 @@ import {
   type ApplicationCaseSummary,
   type AnalysisRunSummary,
   type ArtifactSummary,
+  type InitialAnalysisResult,
   type ApiErrorResponse,
   HealthResponseSchema,
   type HealthResponse as ApiHealth,
@@ -271,7 +272,7 @@ export async function getInitialAnalysisResult(
   baseUrl: string,
   applicationCaseId: string,
   analysisRunId: string,
-): Promise<string> {
+): Promise<InitialAnalysisResult> {
   const response = await fetch(
     `${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}/analysis/${encodeURIComponent(analysisRunId)}/result`,
     { credentials: 'include' },
@@ -283,7 +284,34 @@ export async function getInitialAnalysisResult(
     'API returned an invalid analysis result response.',
   );
 
-  return payload.analysisResult.finalMarkdown;
+  return payload.analysisResult;
+}
+
+export async function updateInitialAnalysisResult(
+  baseUrl: string,
+  applicationCaseId: string,
+  analysisRunId: string,
+  editedFinalMarkdown: string,
+): Promise<InitialAnalysisResult> {
+  const response = await fetch(
+    `${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}/analysis/${encodeURIComponent(analysisRunId)}/result`,
+    { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ editedFinalMarkdown }) },
+  );
+  const payload = await parseResponse(response, InitialAnalysisResultResponseSchema, 'API returned an invalid analysis result response.');
+  return payload.analysisResult;
+}
+
+export async function resetInitialAnalysisResult(
+  baseUrl: string,
+  applicationCaseId: string,
+  analysisRunId: string,
+): Promise<InitialAnalysisResult> {
+  const response = await fetch(
+    `${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}/analysis/${encodeURIComponent(analysisRunId)}/result/edited-markdown`,
+    { method: 'DELETE', credentials: 'include' },
+  );
+  const payload = await parseResponse(response, InitialAnalysisResultResponseSchema, 'API returned an invalid analysis result response.');
+  return payload.analysisResult;
 }
 
 export async function getArtifacts(baseUrl: string, applicationCaseId: string): Promise<ArtifactSummary[]> {
