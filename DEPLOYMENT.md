@@ -5,6 +5,8 @@
 1. Скопируйте `.env.example` в незакоммиченный `.env`.
 2. Задайте уникальные `POSTGRES_PASSWORD` и `BETTER_AUTH_SECRET` длиной не менее
    32 символов. Для локального Compose оставьте `PUBLIC_ORIGIN=http://localhost`.
+   Для real LLM задайте `LLM_MOCK=false`, AITUNNEL `LLM_BASE_URL`, `LLM_MODEL` и ключ;
+   Critic использует `deepseek-v4-flash` с `gpt-oss-20b` как fallback и strict JSON Schema.
 3. Запустите стек:
 
    ```powershell
