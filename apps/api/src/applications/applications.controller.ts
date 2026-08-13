@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 
 import {
   API_SCHEMA_VERSION,
+  ApplicationCaseAnalysisListResponseSchema,
   ApplicationCaseResponseSchema,
   ArtifactListResponseSchema,
   ArtifactResponseSchema,
@@ -30,6 +31,16 @@ import {
 @Controller('applications')
 export class ApplicationsController {
   constructor(private readonly applicationsService: ApplicationsService) {}
+
+  @Get()
+  async listAnalysisCases(@CurrentSession() session: AuthenticatedSession) {
+    const applicationCases = await this.applicationsService.listAnalysisCasesForUser(session.user.id);
+
+    return ApplicationCaseAnalysisListResponseSchema.parse({
+      schemaVersion: API_SCHEMA_VERSION,
+      applicationCases,
+    });
+  }
 
   @Post('file')
   @UseInterceptors(

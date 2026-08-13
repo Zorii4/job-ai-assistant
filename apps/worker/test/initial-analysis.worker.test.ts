@@ -85,10 +85,15 @@ test('loads only sanitized snapshots from the database before running initial an
     queries.some((query) => query.values.includes('[EMAIL_1] опыт') || query.values.includes('Node.js developer')),
     false,
   );
+  assert.equal(queries[0]?.text.includes("SET status = 'RUNNING'"), true);
+  assert.equal(queries[0]?.values[0], 'run-1');
+  assert.equal(queries.some((query) => query.values[0] === 'producer' && query.values[1] === 'run-1'), true);
+  assert.equal(queries.some((query) => query.text.includes("SET status = 'SUCCEEDED'") && query.values[1] === 'run-1'), true);
+  assert.equal(queries.some((query) => query.text.includes("SET status = 'ANALYSIS_READY'") && query.values[0] === 'application-1'), true);
   assert.deepEqual(queries.at(-1)?.values, ['application-1']);
 });
 
-test('marks a final failed worker attempt without storing raw errors', async () => {
+test('marks a workflow failure terminally without storing raw errors or requeuing the full analysis', async () => {
   const queries: Array<{ text: string; values: readonly unknown[] }> = [];
   const database = {
     async query(text: string, values: readonly unknown[]) {
@@ -108,23 +113,64 @@ test('marks a final failed worker attempt without storing raw errors', async () 
     },
   };
 
+  await processInitialAnalysisJob(
+    { applicationCaseId: 'application-1', analysisRunId: 'run-1' },
+    {
+      database,
+      retryRemaining: true,
+      async runInitialAnalysis() {
+        throw new Error('private provider error');
+      },
+    },
+  );
+
+  assert.equal(queries.some((query) => query.values.includes('private provider error')), false);
+  assert.equal(queries.some((query) => query.values.includes('WORKFLOW_RETRY')), false);
+  assert.deepEqual(queries.at(-3)?.values, ['run-1']);
+  assert.deepEqual(queries.at(-2)?.values, ['application-1']);
+  assert.deepEqual(queries.at(-1)?.values, ['application-1']);
+  assert.match(queries.at(-1)?.text ?? '', /initialAnalysisUnitsUsed/);
+});
+
+test('allows PgBoss to retry a persistence error after a completed workflow', async () => {
+  const queries: Array<{ text: string; values: readonly unknown[] }> = [];
+  let callCount = 0;
+  const database = {
+    async query(text: string, values: readonly unknown[]) {
+      queries.push({ text, values });
+      callCount += 1;
+
+      if (text.startsWith('UPDATE analysis_run AS run')) {
+        return {
+          rows: [{
+            userId: 'user-1',
+            resumeSanitizedText: '[EMAIL_1] опыт',
+            vacancySanitizedText: 'Node.js developer',
+          }],
+        };
+      }
+
+      if (callCount === 3) {
+        throw new Error('database write failed');
+      }
+
+      return { rows: [] };
+    },
+  };
+
   await assert.rejects(
     processInitialAnalysisJob(
       { applicationCaseId: 'application-1', analysisRunId: 'run-1' },
       {
         database,
-        retryRemaining: false,
+        retryRemaining: true,
         async runInitialAnalysis() {
-          throw new Error('private provider error');
+          return { finalMarkdown: '# Готово' };
         },
       },
     ),
     /initial_analysis_failed/,
   );
 
-  assert.equal(queries.some((query) => query.values.includes('private provider error')), false);
-  assert.deepEqual(queries.at(-3)?.values, ['run-1']);
-  assert.deepEqual(queries.at(-2)?.values, ['application-1']);
-  assert.deepEqual(queries.at(-1)?.values, ['application-1']);
-  assert.match(queries.at(-1)?.text ?? '', /initialAnalysisUnitsUsed/);
+  assert.equal(queries.some((query) => query.text.includes("status = 'QUEUED'")), true);
 });

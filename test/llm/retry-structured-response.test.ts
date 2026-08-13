@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { StructuredResponseValidationError } from "../../src/llm/llmClient.js";
-import { retryStructuredResponse } from "../../src/llm/retryStructuredResponse.js";
+import {
+  LlmTruncatedResponseError,
+  StructuredResponseValidationError
+} from "../../src/llm/llmClient.js";
+import {
+  retryStructuredResponse,
+  retryCriticBudgetFailureWithFallback
+} from "../../src/llm/retryStructuredResponse.js";
 
 test("retries one invalid structured LLM response", async () => {
   let calls = 0;
@@ -77,4 +83,51 @@ test("retries a validation error without exposing a model response", async () =>
 
   assert.equal(result, "valid");
   assert.equal(calls, 2);
+});
+
+test("switches to the fallback when the primary response is truncated", async () => {
+  let fallbackCalls = 0;
+
+  const result = await retryCriticBudgetFailureWithFallback(
+    async () => {
+      throw new LlmTruncatedResponseError();
+    },
+    async () => {
+      fallbackCalls += 1;
+      return "fallback-valid";
+    }
+  );
+
+  assert.equal(result, "fallback-valid");
+  assert.equal(fallbackCalls, 1);
+});
+
+test("switches to the fallback when the primary response times out", async () => {
+  const result = await retryCriticBudgetFailureWithFallback(
+    async () => {
+      throw new Error("LLM step timed out after 60000ms.");
+    },
+    async () => "fallback-valid"
+  );
+
+  assert.equal(result, "fallback-valid");
+});
+
+test("does not switch models for an ordinary contract validation error", async () => {
+  let fallbackCalls = 0;
+
+  await assert.rejects(
+    retryCriticBudgetFailureWithFallback(
+      async () => {
+        throw new StructuredResponseValidationError("CriticResult", ["root: invalid"]);
+      },
+      async () => {
+        fallbackCalls += 1;
+        return "fallback-valid";
+      }
+    ),
+    /invalid CriticResult/
+  );
+
+  assert.equal(fallbackCalls, 0);
 });

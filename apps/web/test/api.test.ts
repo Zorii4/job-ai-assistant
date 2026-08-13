@@ -8,6 +8,7 @@ import {
   createTextApplicationCase,
   createTextResume,
   getArtifacts,
+  getApplicationCaseAnalyses,
   getInitialAnalysisStatus,
   getInitialAnalysisResult,
   getApiHealth,
@@ -15,6 +16,7 @@ import {
   getResumes,
   requestPasswordReset,
   signInWithPassword,
+  signUpWithInvite,
   signOut,
   updateArtifact,
   resetArtifactToGeneratedContent,
@@ -143,6 +145,38 @@ test('reads the completed markdown result from the owner-only endpoint', async (
   assert.equal((await getInitialAnalysisResult('http://api.test', 'application_1', 'run_1')).finalMarkdown, '# Готово');
 });
 
+test('loads server-owned vacancy snapshots with their analysis runs', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  globalThis.fetch = async (input, init) => {
+    assert.equal(input, 'http://api.test/applications');
+    assert.equal(init?.credentials, 'include');
+    return Response.json({
+      schemaVersion: API_SCHEMA_VERSION,
+      applicationCases: [{
+        id: 'application_1',
+        title: 'Backend developer',
+        status: 'ANALYZING',
+        currentStage: 'ANALYZING',
+        updatedAt: '2026-08-13T12:00:00.000Z',
+        analysisRun: {
+          id: 'run_1',
+          applicationCaseId: 'application_1',
+          workflowType: 'INITIAL_ANALYSIS',
+          status: 'RUNNING',
+          currentStage: 'producer',
+          errorCode: null,
+          createdAt: '2026-08-13T12:00:00.000Z',
+          updatedAt: '2026-08-13T12:00:00.000Z',
+        },
+      }],
+    });
+  };
+
+  assert.equal((await getApplicationCaseAnalyses('http://api.test'))[0]?.analysisRun?.status, 'RUNNING');
+});
+
 test('saves and resets the independently edited full report', async (t) => {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ input: RequestInfo | URL; init: RequestInit | undefined }> = [];
@@ -194,6 +228,29 @@ test('signs in through the Better Auth endpoint with cookies enabled', async (t)
 
   await assert.doesNotReject(() =>
     signInWithPassword('http://api.test', { email: 'user@example.test', password: 'password-123' }),
+  );
+});
+
+test('exposes Better Auth rate-limit retry time to the registration UI', async (t) => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    Object.defineProperty(globalThis, 'window', { value: originalWindow, configurable: true });
+  });
+  Object.defineProperty(globalThis, 'window', {
+    value: { location: { origin: 'http://web.test' } },
+    configurable: true,
+  });
+
+  globalThis.fetch = async () => new Response(
+    JSON.stringify({ message: 'Too many requests. Please try again later.' }),
+    { status: 429, headers: { 'X-Retry-After': '137' } },
+  );
+
+  await assert.rejects(
+    () => signUpWithInvite('http://api.test', { name: 'Ирина', email: 'user@example.test', password: 'password-123', inviteId: 'invite' }),
+    (error: unknown) => error instanceof ApiRequestError && error.status === 429 && error.retryAfterSeconds === 137,
   );
 });
 

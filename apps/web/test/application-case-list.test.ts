@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+
+import { ApplicationCaseList } from '../src/features/applications/ApplicationCaseList.js';
+
+const updatedAt = '2026-08-13T12:00:00.000Z';
+
+test('renders server-restored active, completed and failed analysis snapshots', () => {
+  const markup = renderToStaticMarkup(
+    createElement(ApplicationCaseList, {
+      applicationCases: [
+        { id: 'application-queued', title: 'Queued role', status: 'ANALYZING', currentStage: 'ANALYZING', updatedAt, analysisRun: { id: 'run-queued', applicationCaseId: 'application-queued', workflowType: 'INITIAL_ANALYSIS', status: 'QUEUED', currentStage: null, errorCode: null, createdAt: updatedAt, updatedAt } },
+        { id: 'application-ready', title: 'Ready role', status: 'ANALYSIS_READY', currentStage: 'ANALYSIS_READY', updatedAt, analysisRun: { id: 'run-ready', applicationCaseId: 'application-ready', workflowType: 'INITIAL_ANALYSIS', status: 'SUCCEEDED', currentStage: null, errorCode: null, createdAt: updatedAt, updatedAt } },
+        { id: 'application-failed', title: 'Failed role', status: 'FAILED', currentStage: 'FAILED', updatedAt, analysisRun: { id: 'run-failed', applicationCaseId: 'application-failed', workflowType: 'INITIAL_ANALYSIS', status: 'FAILED', currentStage: null, errorCode: 'WORKFLOW_FAILED', createdAt: updatedAt, updatedAt } },
+      ],
+      onOpenAnalysis: () => undefined,
+    }),
+  );
+
+  assert.match(markup, /В процессе/);
+  assert.match(markup, /Готовые результаты/);
+  assert.match(markup, /Другие вакансии/);
+  assert.match(markup, /Queued role/);
+  assert.match(markup, /Ready role/);
+  assert.match(markup, /Failed role/);
+  assert.match(markup, /К результату/);
+});

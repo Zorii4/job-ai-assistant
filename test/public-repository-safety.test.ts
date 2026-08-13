@@ -86,6 +86,12 @@ test("worker receives configured LLM output limits", () => {
     "LLM_MAX_OUTPUT_TOKENS_ANALYST",
     "LLM_MAX_OUTPUT_TOKENS_PRODUCER",
     "LLM_MAX_OUTPUT_TOKENS_CRITIC",
+    "LLM_CRITIC_MODEL",
+    "LLM_CRITIC_TIMEOUT_MS",
+    "LLM_CRITIC_FALLBACK_MODEL",
+    "LLM_CRITIC_FALLBACK_CONTEXT_CHARS",
+    "LLM_MAX_OUTPUT_TOKENS_CRITIC_FALLBACK",
+    "LLM_TRANSIENT_RETRY_MAX_ATTEMPTS",
     "LLM_MAX_OUTPUT_TOKENS_ORCHESTRATOR_FINAL"
   ]) {
     const expected = `${variable}: $` + `{${variable}:-}`;

@@ -3,7 +3,9 @@ import test from 'node:test';
 
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
+import { Prisma } from '../src/generated/prisma/client.js';
 import { ApplicationsService } from '../src/applications/applications.service.js';
+import { AnalysisCapacityExceededException } from '../src/applications/analysis-capacity-exceeded.exception.js';
 import { AnalysisQuotaExceededException } from '../src/applications/analysis-quota-exceeded.exception.js';
 
 const createdAt = new Date('2026-08-03T18:00:00.000Z');
@@ -133,6 +135,78 @@ test('requires a confirmed resume before creating a vacancy', async () => {
   );
 });
 
+test('lists only the owners analysis snapshots without source texts', async () => {
+  let findArguments: unknown;
+  const database = {
+    applicationCase: {
+      async findMany(arguments_: unknown) {
+        findArguments = arguments_;
+        return [{
+          id: 'application-1',
+          title: 'Backend developer',
+          status: 'ANALYZING' as const,
+          currentStage: 'ANALYZING',
+          updatedAt: createdAt,
+          analysisRuns: [{
+            id: 'run-1',
+            applicationCaseId: 'application-1',
+            workflowType: 'INITIAL_ANALYSIS' as const,
+            status: 'RUNNING' as const,
+            currentStage: 'producer',
+            errorCode: null,
+            createdAt,
+            updatedAt: createdAt,
+          }],
+        }];
+      },
+    },
+  };
+  const service = new ApplicationsService(database as never);
+
+  const result = await service.listAnalysisCasesForUser('user-1');
+
+  assert.deepEqual(result, [{
+    id: 'application-1',
+    title: 'Backend developer',
+    status: 'ANALYZING',
+    currentStage: 'ANALYZING',
+    updatedAt: '2026-08-03T18:00:00.000Z',
+    analysisRun: {
+      id: 'run-1',
+      applicationCaseId: 'application-1',
+      workflowType: 'INITIAL_ANALYSIS',
+      status: 'RUNNING',
+      currentStage: 'producer',
+      errorCode: null,
+      createdAt: '2026-08-03T18:00:00.000Z',
+      updatedAt: '2026-08-03T18:00:00.000Z',
+    },
+  }]);
+  assert.deepEqual(findArguments, {
+    where: { userId: 'user-1' },
+    orderBy: { updatedAt: 'desc' },
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      currentStage: true,
+      updatedAt: true,
+      analysisRuns: {
+        select: {
+          id: true,
+          applicationCaseId: true,
+          workflowType: true,
+          status: true,
+          currentStage: true,
+          errorCode: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+    },
+  });
+});
+
 test('starts one queued initial analysis and enqueues identifiers only', async () => {
   let queuePayload: unknown;
   let applicationUpdate: unknown;
@@ -165,6 +239,7 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
       async update() { return {}; },
     },
     analysisRun: {
+      async count() { return 0; },
       async create(arguments_: unknown) {
         runCreate = arguments_;
         return {
@@ -236,6 +311,111 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
   });
 });
 
+test('rejects a third active initial analysis before reserving quota or creating a run', async () => {
+  let usageReservationAttempted = false;
+  let runCreationAttempted = false;
+  const database = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
+    applicationCase: {
+      async findFirst() { return { id: 'application-3', status: 'DRAFT' as const }; },
+      async update() { return {}; },
+    },
+    user: {
+      async findUnique() { return { planCode: 'ALPHA' }; },
+      async updateMany() { usageReservationAttempted = true; return { count: 1 }; },
+    },
+    analysisRun: {
+      async count(arguments_: unknown) {
+        assert.deepEqual(arguments_, {
+          where: {
+            workflowType: 'INITIAL_ANALYSIS',
+            status: { in: ['QUEUED', 'RUNNING'] },
+            applicationCase: { userId: 'user-1' },
+          },
+        });
+        return 2;
+      },
+      async create() { runCreationAttempted = true; return {}; },
+    },
+  };
+  const service = new ApplicationsService(database as never, { async enqueueInitialAnalysis() { return 'job'; } } as never);
+
+  await assert.rejects(
+    service.launchInitialAnalysisForUser('user-1', 'application-3'),
+    (error: unknown) => error instanceof AnalysisCapacityExceededException,
+  );
+  assert.equal(usageReservationAttempted, false);
+  assert.equal(runCreationAttempted, false);
+});
+
+test('allows a new analysis after either terminal run status releases active capacity', async () => {
+  for (const terminalStatus of ['SUCCEEDED', 'FAILED'] as const) {
+    let runCreated = false;
+    const existingStatuses = ['QUEUED', terminalStatus];
+    const database = {
+      async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
+      applicationCase: {
+        async findFirst() { return { id: `application-${terminalStatus}`, status: 'DRAFT' as const }; },
+        async update() { return {}; },
+      },
+      user: {
+        async findUnique() { return { planCode: 'ALPHA' }; },
+        async updateMany() { return { count: 1 }; },
+      },
+      analysisRun: {
+        async count(arguments_: { where: { status: { in: string[] } } }) {
+          return existingStatuses.filter((status) => arguments_.where.status.in.includes(status)).length;
+        },
+        async create() {
+          runCreated = true;
+          return {
+            id: `run-${terminalStatus}`,
+            applicationCaseId: `application-${terminalStatus}`,
+            workflowType: 'INITIAL_ANALYSIS' as const,
+            status: 'QUEUED' as const,
+            currentStage: null,
+            errorCode: null,
+            createdAt,
+            updatedAt: createdAt,
+          };
+        },
+        async update() { return {}; },
+      },
+    };
+    const service = new ApplicationsService(database as never, { async enqueueInitialAnalysis() { return 'job'; } } as never);
+
+    await service.launchInitialAnalysisForUser('user-1', `application-${terminalStatus}`);
+
+    assert.equal(runCreated, true, `${terminalStatus} must not consume active capacity`);
+  }
+});
+
+test('retries a serialization conflict before starting one initial analysis', async () => {
+  let transactionCalls = 0;
+  let createdRuns = 0;
+  const database = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>, options: unknown) {
+      transactionCalls += 1;
+      assert.deepEqual(options, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      if (transactionCalls === 1) throw new Prisma.PrismaClientKnownRequestError('retry', { code: 'P2034', clientVersion: 'test' });
+      return callback(this);
+    },
+    applicationCase: { async findFirst() { return { id: 'application-1', status: 'DRAFT' as const }; }, async update() { return {}; } },
+    user: { async findUnique() { return { planCode: 'ALPHA' }; }, async updateMany() { return { count: 1 }; }, async update() { return {}; } },
+    analysisRun: {
+      async count() { return 1; },
+      async create() { createdRuns += 1; return { id: 'run-1', applicationCaseId: 'application-1', workflowType: 'INITIAL_ANALYSIS' as const, status: 'QUEUED' as const, currentStage: null, errorCode: null, createdAt, updatedAt: createdAt }; },
+      async update() { return {}; },
+    },
+  };
+  const service = new ApplicationsService(database as never, { async enqueueInitialAnalysis() { return 'job-1'; } } as never);
+
+  await service.launchInitialAnalysisForUser('user-1', 'application-1');
+
+  assert.equal(transactionCalls, 2);
+  assert.equal(createdRuns, 1);
+});
+
 test('does not start an analysis when all ten lifetime units are reserved', async () => {
   let runCreated = false;
   const database = {
@@ -248,7 +428,7 @@ test('does not start an analysis when all ten lifetime units are reserved', asyn
       async findUnique() { return { planCode: 'ALPHA' }; },
       async updateMany() { return { count: 0 }; },
     },
-    analysisRun: { async create() { runCreated = true; return {}; } },
+    analysisRun: { async count() { return 0; }, async create() { runCreated = true; return {}; } },
   };
   const service = new ApplicationsService(database as never, { async enqueueInitialAnalysis() { return 'job'; } } as never);
 
@@ -276,6 +456,7 @@ test('releases a reserved unit when the analysis queue is unavailable', async ()
       async update(arguments_: unknown) { releasedUsage = arguments_; return {}; },
     },
     analysisRun: {
+      async count() { return 0; },
       async create() {
         return {
           id: 'run-1', applicationCaseId: 'application-1', workflowType: 'INITIAL_ANALYSIS' as const,

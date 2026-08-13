@@ -1,4 +1,4 @@
-import { StructuredResponseValidationError } from "./llmClient.js";
+import { LlmTruncatedResponseError, StructuredResponseValidationError } from "./llmClient.js";
 
 export type StructuredResponseRetryEvent = {
   phase: "retry" | "recovery";
@@ -31,6 +31,30 @@ export async function retryStructuredResponse<T>(
   }
 
   return recover();
+}
+
+export async function retryCriticBudgetFailureWithFallback<T>(
+  execute: () => Promise<T>,
+  fallback: () => Promise<T>,
+  onFallback?: () => void
+): Promise<T> {
+  try {
+    return await execute();
+  } catch (error) {
+    if (!isCriticBudgetFailure(error)) {
+      throw error;
+    }
+
+    onFallback?.();
+    return fallback();
+  }
+}
+
+function isCriticBudgetFailure(error: unknown): boolean {
+  return (
+    error instanceof LlmTruncatedResponseError ||
+    (error instanceof Error && /LLM step timed out after \d+ms\./.test(error.message))
+  );
 }
 
 function isInvalidStructuredResponse(error: unknown): boolean {

@@ -1,11 +1,13 @@
 import {
   ApiErrorResponseSchema,
+  ApplicationCaseAnalysisListResponseSchema,
   ApplicationCaseResponseSchema,
   AnalysisRunResponseSchema,
   ArtifactListResponseSchema,
   ArtifactResponseSchema,
   InitialAnalysisResultResponseSchema,
   type ApplicationCaseSummary,
+  type ApplicationCaseAnalysisSummary,
   type AnalysisRunSummary,
   type ArtifactSummary,
   type InitialAnalysisResult,
@@ -22,12 +24,14 @@ import {
 export class ApiRequestError extends Error {
   readonly code: ApiErrorResponse['error']['code'];
   readonly status: number;
+  readonly retryAfterSeconds: number | null;
 
-  constructor(status: number, error: ApiErrorResponse['error']) {
+  constructor(status: number, error: ApiErrorResponse['error'], retryAfterSeconds: number | null = null) {
     super(error.message);
     this.name = 'ApiRequestError';
     this.code = error.code;
     this.status = status;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -197,13 +201,13 @@ export async function deleteResume(baseUrl: string, resumeId: string): Promise<v
     const parsedError = ApiErrorResponseSchema.safeParse(payload);
 
     if (parsedError.success) {
-      throw new ApiRequestError(response.status, parsedError.data.error);
+      throw new ApiRequestError(response.status, parsedError.data.error, getRetryAfterSeconds(response));
     }
 
     throw new ApiRequestError(response.status, {
       code: 'INTERNAL_ERROR',
       message: 'Сервис временно недоступен. Повторите попытку позже.',
-    });
+    }, getRetryAfterSeconds(response));
   }
 }
 
@@ -229,6 +233,17 @@ export async function createFileApplicationCase(
   );
 
   return payload.applicationCase;
+}
+
+export async function getApplicationCaseAnalyses(baseUrl: string): Promise<ApplicationCaseAnalysisSummary[]> {
+  const response = await fetch(`${baseUrl}/applications`, { credentials: 'include' });
+  const payload = await parseResponse(
+    response,
+    ApplicationCaseAnalysisListResponseSchema,
+    'API returned an invalid vacancy list response.',
+  );
+
+  return payload.applicationCases;
 }
 
 export async function launchInitialAnalysis(
@@ -404,14 +419,14 @@ async function parseUnknownResponse(response: Response): Promise<unknown> {
     const parsedPublicError = ApiErrorResponseSchema.safeParse(payload);
 
     if (parsedPublicError.success) {
-      throw new ApiRequestError(response.status, parsedPublicError.data.error);
+      throw new ApiRequestError(response.status, parsedPublicError.data.error, getRetryAfterSeconds(response));
     }
 
     const message = getBetterAuthErrorMessage(payload);
     throw new ApiRequestError(response.status, {
       code: 'INTERNAL_ERROR',
       message: message ?? 'Не удалось выполнить действие. Повторите попытку позже.',
-    });
+    }, getRetryAfterSeconds(response));
   }
 
   return response.json().catch(() => undefined);
@@ -429,6 +444,14 @@ function getBetterAuthErrorMessage(payload: unknown): string | undefined {
   }
 
   return undefined;
+}
+
+function getRetryAfterSeconds(response: Response): number | null {
+  const value = response.headers.get('x-retry-after');
+  if (value === null) return null;
+
+  const seconds = Number(value);
+  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : null;
 }
 
 function isCurrentUserResponse(value: unknown): value is { user: CurrentUser } {

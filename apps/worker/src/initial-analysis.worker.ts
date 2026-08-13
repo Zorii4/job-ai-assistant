@@ -46,22 +46,36 @@ export async function processInitialAnalysisJob(
     return;
   }
 
+  let result: { finalMarkdown: string };
+
   try {
-    const result = await dependencies.runInitialAnalysis({
+    result = await dependencies.runInitialAnalysis({
       resumeText: claimed.resumeSanitizedText,
       vacancyText: claimed.vacancySanitizedText,
       source: 'web',
       userId: claimed.userId,
       onProgress: async ({ stage }) => {
-        await dependencies.database.query(
-          `UPDATE analysis_run
-           SET "currentStage" = $1, "updatedAt" = CURRENT_TIMESTAMP
-           WHERE id = $2`,
-          [stage, job.analysisRunId],
-        );
+        try {
+          await dependencies.database.query(
+            `UPDATE analysis_run
+             SET "currentStage" = $1, "updatedAt" = CURRENT_TIMESTAMP
+             WHERE id = $2`,
+            [stage, job.analysisRunId],
+          );
+        } catch {
+          console.error('[worker] could not persist analysis progress', { analysisRunId: job.analysisRunId });
+        }
       },
     });
+  } catch {
+    // LLM workflow already owns its bounded model retries. Re-running the full
+    // Analyst -> Producer -> Critic pipeline would duplicate cost and hide the
+    // actual terminal outcome from the user.
+    await markRunForRetryOrFailure(dependencies.database, job, false);
+    return;
+  }
 
+  try {
     const artifacts = extractInitialArtifacts(result.finalMarkdown);
 
     if (artifacts !== null) {
@@ -89,6 +103,8 @@ export async function processInitialAnalysisJob(
       [job.applicationCaseId],
     );
   } catch {
+    // A persistence error after a completed workflow may be retried by PgBoss.
+    // The artifact inserts are idempotent and the run is atomically claimed again.
     await markRunForRetryOrFailure(dependencies.database, job, dependencies.retryRemaining);
     throw new Error('initial_analysis_failed');
   }

@@ -25,6 +25,17 @@ test('preserves the source order of supported blocks for accessible editing and 
   );
 });
 
+test('recognizes adjacent headings without requiring blank lines', () => {
+  assert.deepEqual(parseResumeMarkdown('## Опыт\n- TypeScript\n### Результаты\nСократил время ответа\n#### Стек\nNestJS'), [
+    { type: 'heading', level: 2, text: 'Опыт' },
+    { type: 'list', items: ['TypeScript'] },
+    { type: 'heading', level: 3, text: 'Результаты' },
+    { type: 'paragraph', text: 'Сократил время ответа' },
+    { type: 'heading', level: 4, text: 'Стек' },
+    { type: 'paragraph', text: 'NestJS' },
+  ]);
+});
+
 test('keeps quotes, code blocks and links as safe source content', () => {
   assert.deepEqual(parseResumeMarkdown('> Проверить [источник](https://example.test)\n\n```\nconst value = 1;\n```'), [
     { type: 'quote', text: 'Проверить [источник](https://example.test)' },

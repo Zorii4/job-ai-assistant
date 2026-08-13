@@ -4,8 +4,9 @@ type MarkdownBlock = { type: 'heading'; level: number; text: string } | { type: 
 
 export function parseResumeMarkdown(markdown: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
-  for (const block of markdown.split(/\n{2,}/).map((item) => item.trim()).filter(Boolean)) {
-    const lines = block.split('\n'); const heading = /^(#{1,3})\s+(.+)$/.exec(lines[0] ?? '');
+  const normalizedMarkdown = markdown.replace(/^(#{1,4}\s+.+)$/gm, '\n$1\n');
+  for (const block of normalizedMarkdown.split(/\n{2,}/).map((item) => item.trim()).filter(Boolean)) {
+    const lines = block.split('\n'); const heading = /^(#{1,4})\s+(.+)$/.exec(lines[0] ?? '');
     if (heading) { blocks.push({ type: 'heading', level: heading[1].length, text: heading[2] }); continue; }
     if (block.startsWith('```') && block.endsWith('```')) { blocks.push({ type: 'code', text: lines.slice(1, -1).join('\n') }); continue; }
     if (lines.every((line) => /^>\s?/.test(line))) { blocks.push({ type: 'quote', text: lines.map((line) => line.replace(/^>\s?/, '')).join('\n') }); continue; }

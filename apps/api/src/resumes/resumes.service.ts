@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -172,6 +173,8 @@ export class ResumesService {
       data: {
         sanitizationStatus: 'CONFIRMED',
         confirmedAt: new Date(),
+        sourceText: '',
+        sourceFileName: null,
       },
     });
 
@@ -190,12 +193,32 @@ export class ResumesService {
   }
 
   async deleteForUser(userId: string, resumeId: string): Promise<void> {
-    const result = await this.database.resume.deleteMany({
+    const resume = await this.database.resume.findFirst({
       where: { id: resumeId, userId },
+      select: { id: true },
     });
 
-    if (result.count !== 1) {
+    if (resume === null) {
       throw new NotFoundException();
+    }
+
+    const applicationCase = await this.database.applicationCase.findFirst({
+      where: { resumeId: resume.id, userId },
+      select: { id: true },
+    });
+
+    if (applicationCase !== null) {
+      throw new ResumeInUseException();
+    }
+
+    try {
+      await this.database.resume.delete({ where: { id: resume.id } });
+    } catch (error) {
+      if (isResumeInUseError(error)) {
+        throw new ResumeInUseException();
+      }
+
+      throw error;
     }
   }
 }
@@ -239,8 +262,18 @@ function isResumeSlotConflict(error: unknown): boolean {
   );
 }
 
+function isResumeInUseError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2003';
+}
+
 class ResumeLimitReachedException extends HttpException {
   constructor() {
     super('Resume limit reached.', HttpStatus.TOO_MANY_REQUESTS);
+  }
+}
+
+class ResumeInUseException extends ConflictException {
+  constructor() {
+    super('Нельзя удалить резюме, пока оно используется в сохранённой вакансии.');
   }
 }

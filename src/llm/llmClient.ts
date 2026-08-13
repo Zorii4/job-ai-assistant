@@ -1,7 +1,8 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import OpenAI from "openai";
-import type { z } from "zod";
+import type { ResponseFormatJSONSchema } from "openai/resources/shared";
+import { z } from "zod";
 import {
   retryTransientRequest,
   type LlmAttemptMetrics
@@ -19,7 +20,9 @@ const isMockMode = process.env.LLM_MOCK?.toLowerCase() === "true";
 export type CallLLMOptions = {
   maxOutputTokens?: number;
   timeoutMs?: number;
-  jsonMode?: boolean;
+  model?: string;
+  structuredOutput?: ResponseFormatJSONSchema;
+  transientRetryMaxAttempts?: number;
   metrics?: LlmAttemptMetrics;
 };
 
@@ -47,6 +50,13 @@ class LlmEmptyResponseError extends Error {
   }
 }
 
+export class LlmTruncatedResponseError extends Error {
+  constructor() {
+    super("LLM response was truncated before completion.");
+    this.name = "LlmTruncatedResponseError";
+  }
+}
+
 const jsonOnlyOutputInstruction = `
 # Required output format
 
@@ -69,12 +79,18 @@ export async function callLLM(
     throw new Error("LLM_API_KEY is missing or still set to put-your-api-key-here. Add a real key to .env or set LLM_MOCK=true.");
   }
 
-  if (!model) {
+  const selectedModel = options.model ?? model;
+
+  if (!selectedModel) {
     throw new Error("LLM_MODEL is missing. Add it to .env.");
   }
 
   if (!openAICompatibleBaseUrl) {
     throw new Error("LLM_BASE_URL is missing. Add an OpenAI-compatible base URL to .env.");
+  }
+
+  if (options.structuredOutput) {
+    assertStructuredOutputCapability(openAICompatibleBaseUrl, selectedModel);
   }
 
   const client = new OpenAI({
@@ -94,14 +110,14 @@ export async function callLLM(
       try {
         const response = await client.chat.completions.create(
           {
-            model,
+            model: selectedModel,
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
             ],
             temperature: 0.2,
             max_tokens: options.maxOutputTokens,
-            ...(options.jsonMode ? { response_format: { type: "json_object" as const } } : {})
+            ...(options.structuredOutput ? { response_format: options.structuredOutput } : {})
           },
           {
             signal: abortController.signal
@@ -110,6 +126,8 @@ export async function callLLM(
 
         const choice = response.choices[0];
         const content = choice?.message.content?.trim();
+
+        assertCompleteLlmResponse(choice?.finish_reason);
 
         if (!content) {
           const message = choice?.message as {
@@ -143,7 +161,7 @@ export async function callLLM(
       }
     },
     {
-      maxAttempts: getTransientRetryMaxAttempts(),
+      maxAttempts: options.transientRetryMaxAttempts ?? getTransientRetryMaxAttempts(),
       delayMs: getTransientRetryDelayMs(),
       onRetry: ({ attempt, errorCode }) => {
         options.metrics?.retryErrorCodes.push(errorCode);
@@ -161,12 +179,13 @@ export async function callLLMJson<T>(
   options: CallLLMOptions = {}
 ): Promise<CallLLMJsonResult<T>> {
   let raw: string;
+  const structuredOutput = options.structuredOutput ?? createStructuredOutputFormat(schema, contractName);
 
   try {
     raw = await callLLM(
       `${systemPrompt}\n\n${jsonOnlyOutputInstruction}`,
       userPrompt,
-      { ...options, jsonMode: true }
+      { ...options, structuredOutput }
     );
   } catch (error) {
     if (error instanceof LlmEmptyResponseError) {
@@ -207,6 +226,65 @@ export async function callLLMJson<T>(
     data: result.data,
     raw
   };
+}
+
+const aitunnelApiHost = "api.aitunnel.ru";
+const defaultStructuredOutputModels = [
+  "deepseek-v4-flash",
+  "deepseek/deepseek-v4-flash",
+  "gpt-oss-20b",
+  "openai/gpt-oss-20b"
+];
+
+export function createStructuredOutputFormat<T>(
+  schema: z.ZodType<T>,
+  contractName: string
+): ResponseFormatJSONSchema {
+  return {
+    type: "json_schema",
+    json_schema: {
+      name: toSchemaName(contractName),
+      strict: true,
+      schema: z.toJSONSchema(schema, { target: "draft-7" })
+    }
+  };
+}
+
+export function assertStructuredOutputCapability(baseUrl: string, selectedModel: string): void {
+  let providerUrl: URL;
+
+  try {
+    providerUrl = new URL(baseUrl);
+  } catch {
+    throw new Error("LLM_BASE_URL must be a valid URL for a structured-output provider.");
+  }
+
+  if (providerUrl.protocol !== "https:" || providerUrl.hostname !== aitunnelApiHost) {
+    throw new Error("Configured LLM route does not support required strict Structured Outputs.");
+  }
+
+  const supportedModels = new Set(
+    (process.env.LLM_STRUCTURED_OUTPUT_MODELS ?? defaultStructuredOutputModels.join(","))
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+  );
+
+  if (!supportedModels.has(selectedModel)) {
+    throw new Error("Configured LLM model is not declared as supporting required strict Structured Outputs.");
+  }
+}
+
+export function assertCompleteLlmResponse(finishReason: string | null | undefined): void {
+  if (finishReason === "length") {
+    throw new LlmTruncatedResponseError();
+  }
+}
+
+function toSchemaName(contractName: string): string {
+  const normalized = contractName.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+  return normalized.slice(0, 64) || "structured_response";
 }
 
 function extractFirstJsonObject(raw: string): string {
@@ -331,8 +409,6 @@ function createMockCriticResponse(userPrompt: string, inputLength: number): stri
   if (version >= 3) {
     return JSON.stringify({
       schemaVersion: 3,
-      decision: "APPROVED",
-      reviewStatus: "GOOD",
       issues: [],
       claimAudit: [
         {
@@ -351,8 +427,6 @@ function createMockCriticResponse(userPrompt: string, inputLength: number): stri
 
   return JSON.stringify({
     schemaVersion: 3,
-    decision: "NEEDS_REVISION",
-    reviewStatus: "REJECTED",
     issues: [
       {
         category: "ATS",

@@ -1,7 +1,7 @@
 ﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { HttpException, NotFoundException } from '@nestjs/common';
+import { ConflictException, HttpException, NotFoundException } from '@nestjs/common';
 
 import { ResumesService } from '../src/resumes/resumes.service.js';
 
@@ -108,12 +108,10 @@ test('creates a file draft with its safe file name', async () => {
 });
 
 test('does not delete another users resume', async () => {
-  let deleteArguments: unknown;
   const database = {
     resume: {
-      async deleteMany(arguments_: unknown) {
-        deleteArguments = arguments_;
-        return { count: 0 };
+      async findFirst() {
+        return null;
       },
     },
   };
@@ -123,7 +121,38 @@ test('does not delete another users resume', async () => {
     service.deleteForUser(secondUserId, 'resume-1'),
     (error: unknown) => error instanceof NotFoundException,
   );
-  assert.deepEqual(deleteArguments, { where: { id: 'resume-1', userId: secondUserId } });
+});
+
+test('rejects deletion of a resume used by the owners application case', async () => {
+  let applicationCaseArguments: unknown;
+  let deleteCalled = false;
+  const database = {
+    resume: {
+      async findFirst() {
+        return { id: 'resume-1' };
+      },
+      async delete() {
+        deleteCalled = true;
+      },
+    },
+    applicationCase: {
+      async findFirst(arguments_: unknown) {
+        applicationCaseArguments = arguments_;
+        return { id: 'case-1' };
+      },
+    },
+  };
+  const service = new ResumesService(database as never);
+
+  await assert.rejects(
+    service.deleteForUser(firstUserId, 'resume-1'),
+    (error: unknown) => error instanceof ConflictException && error.getStatus() === 409,
+  );
+  assert.deepEqual(applicationCaseArguments, {
+    where: { resumeId: 'resume-1', userId: firstUserId },
+    select: { id: true },
+  });
+  assert.equal(deleteCalled, false);
 });
 
 test('rejects a sixth resume before creating it', async () => {
@@ -208,6 +237,8 @@ test('does not confirm another users resume', async () => {
     (updateArguments as { data: { confirmedAt: unknown } }).data.confirmedAt instanceof Date,
     true,
   );
+  assert.equal((updateArguments as { data: { sourceText: string } }).data.sourceText, '');
+  assert.equal((updateArguments as { data: { sourceFileName: string | null } }).data.sourceFileName, null);
   assert.deepEqual(lookupArguments, {
     where: { id: 'resume-1', userId: secondUserId },
     select: { id: true },
