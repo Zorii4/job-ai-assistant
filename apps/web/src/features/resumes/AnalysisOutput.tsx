@@ -24,15 +24,10 @@ export function MarkdownReport({ markdown }: { markdown: string }) {
     </section>
   );
 }
-
 export function ArtifactMaterials({
-  artifacts, drafts, states, onDraftChange, onReset,
+  artifacts,
 }: {
   artifacts: ArtifactSummary[];
-  drafts: Record<string, string>;
-  states: Record<string, 'saving' | 'saved' | 'error'>;
-  onDraftChange: (artifactId: string, value: string) => void;
-  onReset: (artifact: ArtifactSummary) => void;
 }) {
   return (
     <section className="artifact-materials" aria-labelledby="artifact-materials-title">
@@ -41,7 +36,7 @@ export function ArtifactMaterials({
           <p className="eyebrow">МАТЕРИАЛЫ</p>
           <h2 id="artifact-materials-title">Черновики для следующего шага</h2>
         </div>
-        <p>Изменения сохраняются автоматически.</p>
+        <p>Выделите и скопируйте нужный фрагмент вручную.</p>
       </div>
       <p className="material-warning" role="note">
         <span>WARNING · CONDITIONAL</span>
@@ -50,26 +45,8 @@ export function ArtifactMaterials({
       <div className="artifact-list">
         {artifacts.map((artifact) => (
           <article className="artifact-card" key={artifact.id}>
-            <div className="artifact-card-heading">
-              <h3>{getArtifactTitle(artifact.type)}</h3>
-              <p className={`artifact-save-state artifact-save-state--${states[artifact.id] ?? 'saved'}`} role="status">
-                {getArtifactStateLabel(states[artifact.id] ?? 'saved')}
-              </p>
-            </div>
-            <label className="field">
-              <span className="sr-only">{getArtifactTitle(artifact.type)}</span>
-              <textarea
-                value={drafts[artifact.id] ?? artifact.editedContent ?? artifact.generatedContent}
-                onChange={(event) => onDraftChange(artifact.id, event.target.value)}
-                rows={8}
-                maxLength={50_000}
-              />
-            </label>
-            {artifact.editedContent !== null && (
-              <button className="button button--secondary" type="button" onClick={() => onReset(artifact)} disabled={states[artifact.id] === 'saving'}>
-                {states[artifact.id] === 'saving' ? 'Возвращаем…' : 'Вернуть AI-версию'}
-              </button>
-            )}
+            <div className="artifact-card-heading"><h3>{getArtifactTitle(artifact.type)}</h3></div>
+            <MarkdownReport markdown={artifact.generatedContent} />
           </article>
         ))}
       </div>
@@ -84,10 +61,4 @@ function getArtifactTitle(type: ArtifactSummary['type']): string {
     RECRUITER_MESSAGE: 'Сообщение рекрутеру',
     FOLLOW_UP: 'Follow-up',
   }[type];
-}
-
-function getArtifactStateLabel(state: 'saving' | 'saved' | 'error'): string {
-  if (state === 'saving') return 'Сохраняем…';
-  if (state === 'error') return 'Не удалось сохранить';
-  return 'Сохранено';
 }

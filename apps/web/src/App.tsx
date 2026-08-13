@@ -5,12 +5,22 @@ import type { CurrentUser } from './api';
 import { AuthScreen, AuthShell, getInitialAuthView } from './features/auth/AuthScreen';
 import type { AuthView } from './features/auth/AuthScreen';
 import { AuthenticatedApp } from './features/app/AuthenticatedApp';
+import type { VisualTheme } from './components/ThemeToggle';
+
+const visualThemeStorageKey = 'job-ai-assistant.visual-theme';
 
 export function App() {
   const [sessionState, setSessionState] = useState<'loading' | 'authenticated' | 'anonymous'>('loading');
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [authView, setAuthView] = useState<AuthView>(() => getInitialAuthView());
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [visualTheme, setVisualTheme] = useState<VisualTheme>(() => document.documentElement.dataset.visualDirection === 'dark' ? 'dark' : 'light');
+
+  function changeVisualTheme(theme: VisualTheme) {
+    document.documentElement.dataset.visualDirection = theme;
+    try { window.localStorage.setItem(visualThemeStorageKey, theme); } catch { /* Browser privacy settings can block storage. */ }
+    setVisualTheme(theme);
+  }
 
   const loadSession = useCallback(async () => {
     try {
@@ -47,11 +57,11 @@ export function App() {
   }
 
   if (sessionState === 'loading') {
-    return <AuthShell><p className="auth-state" role="status">Проверяем сессию…</p></AuthShell>;
+    return <AuthShell theme={visualTheme} onThemeChange={changeVisualTheme}><p className="auth-state" role="status">Проверяем сессию…</p></AuthShell>;
   }
 
   if (sessionState === 'authenticated' && user !== null && user.emailVerified) {
-    return <AuthenticatedApp user={user} logoutError={logoutError} onSignOut={handleSignOut} />;
+    return <AuthenticatedApp user={user} logoutError={logoutError} onSignOut={handleSignOut} theme={visualTheme} onThemeChange={changeVisualTheme} />;
   }
 
   return (
@@ -60,6 +70,8 @@ export function App() {
       user={user}
       onAuthenticated={() => void loadSession()}
       onViewChange={setAuthView}
+      theme={visualTheme}
+      onThemeChange={changeVisualTheme}
     />
   );
 }

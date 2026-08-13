@@ -1,7 +1,8 @@
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 */
 /* Hallmark · genre: modern-minimal · macrostructure: Workbench · theme: Cobalt · tone: utilitarian · anchor hue: cobalt */
 
-:root {
+:root,
+:root[data-visual-direction='light'] {
   --color-paper: oklch(98.5% 0.004 250);
   --color-paper-raised: oklch(99.5% 0.002 250);
   --color-paper-muted: oklch(95.5% 0.008 250);

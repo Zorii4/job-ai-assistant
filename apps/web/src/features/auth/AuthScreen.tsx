@@ -10,6 +10,9 @@ import {
   signUpWithInvite,
 } from '../../api';
 import type { CurrentUser } from '../../api';
+import { ThemeToggle } from '../../components/ThemeToggle';
+import type { VisualTheme } from '../../components/ThemeToggle';
+import { isValidEmailAddress } from './emailValidation';
 
 export type AuthView = 'sign-in' | 'sign-up' | 'verify-email' | 'recovery' | 'reset-password';
 export function AuthScreen({
@@ -17,11 +20,15 @@ export function AuthScreen({
   user,
   onAuthenticated,
   onViewChange,
+  theme,
+  onThemeChange,
 }: {
   initialView: AuthView;
   user: CurrentUser | null;
   onAuthenticated: () => void;
   onViewChange: (view: AuthView) => void;
+  theme: VisualTheme;
+  onThemeChange: (theme: VisualTheme) => void;
 }) {
   const [view, setView] = useState<AuthView>(initialView);
   const [email, setEmail] = useState(user?.email ?? '');
@@ -29,21 +36,35 @@ export function AuthScreen({
   const [inviteId, setInviteId] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [message, setMessage] = useState<string | null>(
     getAuthCallbackMessage(),
   );
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [retryAfterSeconds, setRetryAfterSeconds] = useState<number | null>(null);
 
   useEffect(() => {
     setView(initialView);
   }, [initialView]);
+
+  useEffect(() => {
+    if (retryAfterSeconds === null) return;
+
+    const timer = window.setTimeout(() => {
+      setRetryAfterSeconds((current) => current === null || current <= 1 ? null : current - 1);
+    }, 1_000);
+
+    return () => window.clearTimeout(timer);
+  }, [retryAfterSeconds]);
 
   function changeView(nextView: AuthView) {
     setError(null);
     setMessage(null);
     setPassword('');
     setPasswordConfirmation('');
+    setIsPasswordVisible(false);
+    setRetryAfterSeconds(null);
     setView(nextView);
     onViewChange(nextView);
   }
@@ -54,8 +75,8 @@ export function AuthScreen({
     setMessage(null);
 
     const normalizedEmail = email.trim().toLowerCase();
-    if (view !== 'reset-password' && !normalizedEmail) {
-      setError('Укажите email.');
+    if (view !== 'reset-password' && !isValidEmailAddress(normalizedEmail)) {
+      setError('Укажите email в корректном формате.');
       return;
     }
     if ((view === 'sign-in' || view === 'sign-up' || view === 'reset-password') && password.length < 8) {
@@ -103,7 +124,11 @@ export function AuthScreen({
         setMessage('Пароль изменён. Войдите с новым паролем.');
       }
     } catch (submissionError) {
-      setError(getAuthErrorMessage(submissionError));
+      if (submissionError instanceof ApiRequestError && submissionError.retryAfterSeconds !== null) {
+        setRetryAfterSeconds(submissionError.retryAfterSeconds);
+      } else {
+        setError(getAuthErrorMessage(submissionError));
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -118,7 +143,7 @@ export function AuthScreen({
   }[view];
 
   return (
-    <AuthShell>
+    <AuthShell theme={theme} onThemeChange={onThemeChange}>
       <section className="auth-card" aria-labelledby="auth-title">
         <div className="auth-heading">
           <p className="eyebrow">ЗАЩИЩЁННЫЙ ДОСТУП</p>
@@ -139,18 +164,19 @@ export function AuthScreen({
           )}
 
           {(view === 'sign-in' || view === 'sign-up' || view === 'reset-password') && (
-            <label className="field"><span>{view === 'reset-password' ? 'Новый пароль' : 'Пароль'}</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={view === 'reset-password' ? 'new-password' : view === 'sign-up' ? 'new-password' : 'current-password'} disabled={isSubmitting} /></label>
+            <div className="field"><label htmlFor="auth-password">{view === 'reset-password' ? 'Новый пароль' : 'Пароль'}</label><div className="password-field"><input id="auth-password" type={isPasswordVisible ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={view === 'reset-password' ? 'new-password' : view === 'sign-up' ? 'new-password' : 'current-password'} disabled={isSubmitting} /><button className="button button--secondary button--small" type="button" aria-pressed={isPasswordVisible} onClick={() => setIsPasswordVisible((current) => !current)} disabled={isSubmitting}>{isPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}</button></div></div>
           )}
 
           {(view === 'sign-up' || view === 'reset-password') && (
-            <label className="field"><span>Повторите пароль</span><input type="password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} autoComplete="new-password" disabled={isSubmitting} /></label>
+            <div className="field"><label htmlFor="auth-password-confirmation">Повторите пароль</label><div className="password-field"><input id="auth-password-confirmation" type={isPasswordVisible ? 'text' : 'password'} value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} autoComplete="new-password" disabled={isSubmitting} /><button className="button button--secondary button--small" type="button" aria-pressed={isPasswordVisible} onClick={() => setIsPasswordVisible((current) => !current)} disabled={isSubmitting}>{isPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}</button></div></div>
           )}
 
           {error !== null && <p className="form-message form-message--error" role="alert">{error}</p>}
+          {retryAfterSeconds !== null && <p className="form-message form-message--error" role="alert">Слишком много попыток. Повторите через {formatRetryAfter(retryAfterSeconds)}.</p>}
           {message !== null && <p className="form-message form-message--success" role="status">{message}</p>}
 
-          <button className="button button--primary" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Подождите…' : getAuthActionLabel(view)}
+          <button className="button button--primary" type="submit" disabled={isSubmitting || retryAfterSeconds !== null}>
+            {isSubmitting ? 'Подождите…' : retryAfterSeconds !== null ? `Повторить через ${formatRetryAfter(retryAfterSeconds)}` : getAuthActionLabel(view)}
           </button>
         </form>
 
@@ -164,8 +190,8 @@ export function AuthScreen({
   );
 }
 
-export function AuthShell({ children }: { children: React.ReactNode }) {
-  return <main className="auth-shell">{children}</main>;
+export function AuthShell({ children, theme, onThemeChange }: { children: React.ReactNode; theme: VisualTheme; onThemeChange: (theme: VisualTheme) => void }) {
+  return <main className="auth-shell"><div className="auth-shell__theme"><ThemeToggle theme={theme} onChange={onThemeChange} /></div>{children}</main>;
 }
 
 export function getInitialAuthView(): AuthView {
@@ -195,4 +221,12 @@ function getAuthActionLabel(view: AuthView): string {
 
 function getAuthErrorMessage(error: unknown): string {
   return error instanceof ApiRequestError ? error.message : 'Не удалось выполнить действие. Повторите попытку позже.';
+}
+
+function formatRetryAfter(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes === 0) return `${remainingSeconds} с`;
+  if (remainingSeconds === 0) return `${minutes} мин`;
+  return `${minutes} мин ${remainingSeconds} с`;
 }
