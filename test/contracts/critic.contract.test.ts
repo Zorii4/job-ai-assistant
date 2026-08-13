@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { criticResultSchema } from "../../src/contracts/critic.contract.js";
+import {
+  criticFindingsSchema,
+  criticResultSchema,
+  finalizeCriticResult
+} from "../../src/contracts/critic.contract.js";
 
 const validWarningIssue = {
   category: "Structure" as const,
@@ -35,6 +39,43 @@ function approvedResult(overrides: Record<string, unknown> = {}) {
 
 test("Critic contract accepts an approved result without critical findings", () => {
   assert.equal(criticResultSchema.safeParse(approvedResult()).success, true);
+});
+
+test("Critic findings omit derived status fields and finalize them deterministically", () => {
+  const findings = criticFindingsSchema.parse({
+    schemaVersion: 3,
+    issues: [validWarningIssue],
+    claimAudit: [validClaimAuditEntry],
+    summary: "One warning remains before the materials are ready."
+  });
+
+  assert.deepEqual(finalizeCriticResult(findings), {
+    ...findings,
+    decision: "APPROVED",
+    reviewStatus: "NEEDS_REVIEW"
+  });
+});
+
+test("Critic finalization requires revision for a critical finding by construction", () => {
+  const findings = criticFindingsSchema.parse({
+    schemaVersion: 3,
+    issues: [],
+    claimAudit: [
+      {
+        ...validClaimAuditEntry,
+        classification: "UNSUPPORTED",
+        severity: "CRITICAL",
+        evidence: [],
+        requiredAction: "Remove the unsupported claim."
+      }
+    ],
+    summary: "A critical unsupported claim must be removed."
+  });
+  const result = finalizeCriticResult(findings);
+
+  assert.equal(result.decision, "NEEDS_REVISION");
+  assert.equal(result.reviewStatus, "REJECTED");
+  assert.equal(criticResultSchema.safeParse(result).success, true);
 });
 
 test("Critic contract accepts warnings without blocking approval", () => {
@@ -107,6 +148,14 @@ test("Critic contract rejects unexpected fields", () => {
   );
 
   assert.equal(result.success, false);
+});
+
+test("Critic contract limits audit volume and field sizes", () => {
+  const tooManyClaims = Array.from({ length: 17 }, () => validClaimAuditEntry);
+  const oversizedSummary = "x".repeat(1_501);
+
+  assert.equal(criticResultSchema.safeParse(approvedResult({ claimAudit: tooManyClaims })).success, false);
+  assert.equal(criticResultSchema.safeParse(approvedResult({ summary: oversizedSummary })).success, false);
 });
 
 test("Critic contract rejects approved output with a critical finding", () => {

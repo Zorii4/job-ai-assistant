@@ -79,7 +79,7 @@ export function classifyLlmError(error: unknown): LlmErrorCode {
   }
 
   if (
-    /LLM returned|invalid .*contract|does not contain a JSON object|incomplete JSON object/i.test(details.message)
+    /LLM returned|invalid .*contract|does not contain a JSON object|incomplete JSON object|truncated before completion/i.test(details.message)
   ) {
     return "LLM_RESPONSE_INVALID";
   }

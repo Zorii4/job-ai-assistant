@@ -4,10 +4,10 @@ const criticIssueSchema = z
   .object({
     category: z.enum(["Strategy", "Facts", "Vacancy", "ATS", "Consistency", "Communication", "Structure"]),
     severity: z.enum(["CRITICAL", "WARNING", "INFO"]),
-    problem: z.string().min(1),
-    reason: z.string().min(1),
-    requiredAction: z.string().min(1),
-    reference: z.string().min(1)
+    problem: z.string().min(1).max(800),
+    reason: z.string().min(1).max(800),
+    requiredAction: z.string().min(1).max(800),
+    reference: z.string().min(1).max(500)
   })
   .strict();
 
@@ -26,19 +26,19 @@ const criticSeveritySchema = z.enum(["CRITICAL", "WARNING", "INFO"]);
 const claimAuditEvidenceSchema = z
   .object({
     source: z.enum(["resume", "vacancy"]),
-    quote: z.string().min(1)
+    quote: z.string().min(1).max(700)
   })
   .strict();
 
 const claimAuditEntrySchema = z
   .object({
-    claim: z.string().min(1),
+    claim: z.string().min(1).max(700),
     material: z.enum(["Analysis", "Resume", "ResumeRecommendations", "CoverLetter", "RecruiterMessage", "FollowUp"]),
     classification: claimClassificationSchema,
     severity: criticSeveritySchema,
-    evidence: z.array(claimAuditEvidenceSchema),
-    reason: z.string().min(1),
-    requiredAction: z.string()
+    evidence: z.array(claimAuditEvidenceSchema).max(2),
+    reason: z.string().min(1).max(800),
+    requiredAction: z.string().max(800)
   })
   .strict()
   .superRefine((entry, context) => {
@@ -84,16 +84,22 @@ const claimAuditEntrySchema = z
     }
   });
 
-export const criticResultSchema = z
+export const criticFindingsSchema = z
   .object({
     schemaVersion: z.literal(3),
-    decision: z.enum(["APPROVED", "NEEDS_REVISION"]),
-    reviewStatus: z.enum(["GOOD", "NEEDS_REVIEW", "REJECTED"]),
-    issues: z.array(criticIssueSchema),
-    claimAudit: z.array(claimAuditEntrySchema).min(1),
-    summary: z.string().min(1)
+    issues: z.array(criticIssueSchema).max(12),
+    claimAudit: z.array(claimAuditEntrySchema).min(1).max(16),
+    summary: z.string().min(1).max(1_500)
   })
-  .strict()
+  .strict();
+
+export type CriticFindings = z.infer<typeof criticFindingsSchema>;
+
+export const criticResultSchema = criticFindingsSchema
+  .extend({
+    decision: z.enum(["APPROVED", "NEEDS_REVISION"]),
+    reviewStatus: z.enum(["GOOD", "NEEDS_REVIEW", "REJECTED"])
+  })
   .superRefine((result, context) => {
     const criticalIssues = result.issues.filter((issue) => issue.severity === "CRITICAL");
     const criticalClaims = result.claimAudit.filter((entry) => entry.severity === "CRITICAL");
@@ -144,3 +150,23 @@ export const criticResultSchema = z
   });
 
 export type CriticResult = z.infer<typeof criticResultSchema>;
+
+/**
+ * decision and reviewStatus are deterministic summaries of Critic findings,
+ * not additional model judgements. Producing them here makes their
+ * relationship to severity correct by construction.
+ */
+export function finalizeCriticResult(findings: CriticFindings): CriticResult {
+  const hasCriticalFinding =
+    findings.issues.some((issue) => issue.severity === "CRITICAL") ||
+    findings.claimAudit.some((entry) => entry.severity === "CRITICAL");
+  const hasWarning =
+    findings.issues.some((issue) => issue.severity === "WARNING") ||
+    findings.claimAudit.some((entry) => entry.severity === "WARNING");
+
+  return {
+    ...findings,
+    decision: hasCriticalFinding ? "NEEDS_REVISION" : "APPROVED",
+    reviewStatus: hasCriticalFinding ? "REJECTED" : hasWarning ? "NEEDS_REVIEW" : "GOOD"
+  };
+}
