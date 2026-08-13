@@ -152,6 +152,26 @@ export const AnalysisRunSummarySchema = z
 
 export type AnalysisRunSummary = z.infer<typeof AnalysisRunSummarySchema>;
 
+export const ApplicationCaseAnalysisSummarySchema = z
+  .object({
+    id: z.string().min(1),
+    title: z.string().min(1),
+    status: ApplicationCaseStatusSchema,
+    currentStage: z.string().min(1),
+    updatedAt: z.string().datetime(),
+    analysisRun: AnalysisRunSummarySchema.nullable(),
+  })
+  .strict();
+
+export type ApplicationCaseAnalysisSummary = z.infer<typeof ApplicationCaseAnalysisSummarySchema>;
+
+export const ApplicationCaseAnalysisListResponseSchema = z
+  .object({
+    schemaVersion: z.literal(API_SCHEMA_VERSION),
+    applicationCases: z.array(ApplicationCaseAnalysisSummarySchema),
+  })
+  .strict();
+
 export const AnalysisRunResponseSchema = z
   .object({
     schemaVersion: z.literal(API_SCHEMA_VERSION),

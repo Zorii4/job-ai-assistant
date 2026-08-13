@@ -8,6 +8,7 @@ import {
 
 import type {
   ApplicationCaseSummary,
+  ApplicationCaseAnalysisSummary,
   ArtifactSummary,
   InitialAnalysisResult,
   AnalysisRunSummary,
@@ -16,11 +17,16 @@ import type {
   UpdateInitialAnalysisResultRequest,
 } from '@job-ai-assistant/contracts';
 
+import { Prisma } from '../generated/prisma/client.js';
 import { prisma } from '../database/prisma.service.js';
 import { JobsService } from '../jobs/jobs.service.js';
 import { sanitizeDirectIdentifiers } from '../resumes/resume-sanitizer.js';
 import { getUsagePolicy } from '../usage/usage-policy.js';
 import { AnalysisQuotaExceededException } from './analysis-quota-exceeded.exception.js';
+import { AnalysisCapacityExceededException } from './analysis-capacity-exceeded.exception.js';
+
+const maxActiveInitialAnalysisRuns = 2;
+const serializationRetryLimit = 3;
 
 const applicationCaseSummarySelect = {
   id: true,
@@ -74,6 +80,15 @@ type AnalysisRunRecord = {
   updatedAt: Date;
 };
 
+type ApplicationCaseAnalysisRecord = {
+  id: string;
+  title: string;
+  status: 'DRAFT' | 'ANALYZING' | 'ANALYSIS_READY' | 'FAILED';
+  currentStage: string;
+  updatedAt: Date;
+  analysisRuns: AnalysisRunRecord[];
+};
+
 @Injectable()
 export class ApplicationsService {
   private readonly database: typeof prisma;
@@ -85,8 +100,25 @@ export class ApplicationsService {
     this.database = database ?? prisma;
   }
 
+  async listAnalysisCasesForUser(userId: string): Promise<ApplicationCaseAnalysisSummary[]> {
+    const applicationCases = await this.database.applicationCase.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        currentStage: true,
+        updatedAt: true,
+        analysisRuns: { select: analysisRunSummarySelect },
+      },
+    });
+
+    return applicationCases.map(toApplicationCaseAnalysisSummary);
+  }
+
   async launchInitialAnalysisForUser(userId: string, applicationCaseId: string): Promise<AnalysisRunSummary> {
-    const analysisRun = await this.database.$transaction(async (transaction) => {
+    const analysisRun = await this.runSerializableTransaction(async (transaction) => {
       const applicationCase = await transaction.applicationCase.findFirst({
         where: { id: applicationCaseId, userId },
         select: { id: true, status: true },
@@ -107,6 +139,18 @@ export class ApplicationsService {
 
       if (user === null) {
         throw new NotFoundException();
+      }
+
+      const activeRunCount = await transaction.analysisRun.count({
+        where: {
+          workflowType: 'INITIAL_ANALYSIS',
+          status: { in: ['QUEUED', 'RUNNING'] },
+          applicationCase: { userId },
+        },
+      });
+
+      if (activeRunCount >= maxActiveInitialAnalysisRuns) {
+        throw new AnalysisCapacityExceededException();
       }
 
       const reservation = await transaction.user.updateMany({
@@ -389,6 +433,26 @@ export class ApplicationsService {
 
     return this.jobsService;
   }
+
+  private async runSerializableTransaction<T>(callback: (transaction: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < serializationRetryLimit; attempt += 1) {
+      try {
+        return await this.database.$transaction(callback, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error) {
+        if (!isTransactionSerializationFailure(error) || attempt === serializationRetryLimit - 1) {
+          throw error;
+        }
+      }
+    }
+
+    throw new Error('Serializable transaction retry limit exhausted.');
+  }
+}
+
+function isTransactionSerializationFailure(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034';
 }
 
 function toApplicationCaseSummary(record: ApplicationCaseRecord): ApplicationCaseSummary {
@@ -418,6 +482,17 @@ function toAnalysisRunSummary(record: AnalysisRunRecord): AnalysisRunSummary {
     errorCode: record.errorCode,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
+function toApplicationCaseAnalysisSummary(record: ApplicationCaseAnalysisRecord): ApplicationCaseAnalysisSummary {
+  return {
+    id: record.id,
+    title: record.title,
+    status: record.status,
+    currentStage: record.currentStage,
+    updatedAt: record.updatedAt.toISOString(),
+    analysisRun: record.analysisRuns[0] === undefined ? null : toAnalysisRunSummary(record.analysisRuns[0]),
   };
 }
 

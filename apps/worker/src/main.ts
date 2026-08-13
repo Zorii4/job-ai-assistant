@@ -25,6 +25,12 @@ type LegacyWorkflowModule = {
   }) => LegacyInitialAnalysis;
 };
 
+export const initialAnalysisWorkerOptions = {
+  includeMetadata: true,
+  batchSize: 1,
+  localConcurrency: 2,
+} as const;
+
 export async function startWorker(): Promise<void> {
   loadProjectEnvironmentWhenMissing('POSTGRES_USER');
   const database = new Pool({ connectionString: getDatabaseUrl(), application_name: 'job-ai-assistant-worker' });
@@ -39,9 +45,9 @@ export async function startWorker(): Promise<void> {
   });
 
   const legacyWorkflow = await loadLegacyWorkflow();
-  await boss.work<InitialAnalysisJobPayload, void, { includeMetadata: true }>(
+  await boss.work<InitialAnalysisJobPayload, void, typeof initialAnalysisWorkerOptions>(
     queueName,
-    { includeMetadata: true },
+    initialAnalysisWorkerOptions,
     async (jobs) => {
       for (const job of jobs) {
         const payload = InitialAnalysisJobPayloadSchema.parse(job.data);
