@@ -129,10 +129,10 @@ test('marks a workflow failure terminally without storing raw errors or requeuin
 
   assert.equal(queries.some((query) => query.values.includes('private provider error')), false);
   assert.equal(queries.some((query) => query.values.includes('WORKFLOW_RETRY')), false);
-  assert.deepEqual(queries.at(-3)?.values, ['run-1', 'ANALYST_RESPONSE_INVALID']);
-  assert.deepEqual(queries.at(-2)?.values, ['application-1']);
-  assert.deepEqual(queries.at(-1)?.values, ['application-1']);
-  assert.match(queries.at(-1)?.text ?? '', /initialAnalysisUnitsUsed/);
+  assert.equal(queries.some((query) => query.values[0] === 'run-1' && query.values[1] === 'ANALYST_RESPONSE_INVALID'), true);
+  assert.equal(queries.some((query) => query.text.includes("SET status = 'FAILED'") && query.values[0] === 'application-1'), true);
+  assert.equal(queries.some((query) => query.text.includes('INSERT INTO stage_event') && query.values[0] === 'application-1'), true);
+  assert.equal(queries.some((query) => query.text.includes('initialAnalysisUnitsUsed') && query.values[0] === 'application-1'), true);
 });
 
 test('allows PgBoss to retry a persistence error after a completed workflow', async () => {

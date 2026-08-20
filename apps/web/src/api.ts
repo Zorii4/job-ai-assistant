@@ -84,6 +84,17 @@ export async function signOut(baseUrl: string): Promise<void> {
   await postAuth(baseUrl, '/sign-out', undefined);
 }
 
+export async function deleteCurrentUser(baseUrl: string): Promise<void> {
+  const response = await fetch(`${baseUrl}/users/me`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirmation: 'УДАЛИТЬ АККАУНТ' }),
+  });
+
+  await parseUnknownResponse(response);
+}
+
 export async function sendVerificationEmail(baseUrl: string, email: string): Promise<void> {
   await postAuth(baseUrl, '/send-verification-email', {
     email,
@@ -213,11 +224,12 @@ export async function deleteResume(baseUrl: string, resumeId: string): Promise<v
 
 export async function createFileApplicationCase(
   baseUrl: string,
-  input: { title: string; resumeId: string; file: File },
+  input: { title: string; resumeId: string; file: File; replacementApplicationCaseId?: string },
 ): Promise<ApplicationCaseSummary> {
   const formData = new FormData();
   formData.set('title', input.title);
   formData.set('resumeId', input.resumeId);
+  if (input.replacementApplicationCaseId !== undefined) formData.set('replacementApplicationCaseId', input.replacementApplicationCaseId);
   formData.set('file', input.file);
 
   const response = await fetch(`${baseUrl}/applications/file`, {
@@ -244,6 +256,18 @@ export async function getApplicationCaseAnalyses(baseUrl: string): Promise<Appli
   );
 
   return payload.applicationCases;
+}
+
+export async function updateApplicationCaseStage(baseUrl: string, applicationCaseId: string, status: ApplicationCaseAnalysisSummary['status']): Promise<void> {
+  const response = await fetch(`${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}/stage`, {
+    method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
+  });
+  if (!response.ok) throw new ApiRequestError(response.status, { code: 'INTERNAL_ERROR', message: 'Не удалось обновить статус вакансии.' });
+}
+
+export async function deleteCompletedApplicationCase(baseUrl: string, applicationCaseId: string): Promise<void> {
+  const response = await fetch(`${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}`, { method: 'DELETE', credentials: 'include' });
+  if (!response.ok) throw new ApiRequestError(response.status, { code: 'INTERNAL_ERROR', message: 'Не удалось удалить вакансию.' });
 }
 
 export async function launchInitialAnalysis(

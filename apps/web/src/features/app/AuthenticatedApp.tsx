@@ -13,9 +13,12 @@ import type { VisualTheme } from '../../components/ThemeToggle';
 
 type ApiState = 'loading' | 'ready' | 'error';
 
-export function AuthenticatedApp({ user, logoutError, onSignOut, theme, onThemeChange }: { user: CurrentUser; logoutError: string | null; onSignOut: () => Promise<void>; theme: VisualTheme; onThemeChange: (theme: VisualTheme) => void }) {
+export function AuthenticatedApp({ user, logoutError, onSignOut, onDeleteAccount, theme, onThemeChange }: { user: CurrentUser; logoutError: string | null; onSignOut: () => Promise<void>; onDeleteAccount: () => Promise<void>; theme: VisualTheme; onThemeChange: (theme: VisualTheme) => void }) {
   const { route, navigate } = useAppRouter();
   const [apiState, setApiState] = useState<ApiState>('loading');
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
   const checkApiHealth = useCallback(async () => {
     setApiState('loading');
     try { await getApiHealth(getApiBaseUrl()); setApiState('ready'); } catch { setApiState('error'); }
@@ -24,6 +27,11 @@ export function AuthenticatedApp({ user, logoutError, onSignOut, theme, onThemeC
   const handleAnalysisCreated = (applicationCaseId: string, runId: string) => {
     navigate({ name: 'analysis-result', applicationCaseId, runId });
   };
+  async function deleteAccount() {
+    setDeleteAccountError(null);
+    setIsDeletingAccount(true);
+    try { await onDeleteAccount(); } catch { setDeleteAccountError('Не удалось удалить аккаунт. Повторите попытку позже.'); setIsDeletingAccount(false); }
+  }
 
   return <main className="app-shell">
     <header className="app-header">
@@ -31,6 +39,7 @@ export function AuthenticatedApp({ user, logoutError, onSignOut, theme, onThemeC
       <div className="header-actions"><ThemeToggle theme={theme} onChange={onThemeChange} /><p className={`connection-state connection-state--${apiState}`} role="status"><span aria-hidden="true" />{apiState === 'loading' && 'Проверяем API'}{apiState === 'ready' && 'API подключён'}{apiState === 'error' && 'Нет подключения к API'}</p><button className="button button--secondary button--small" type="button" onClick={() => void onSignOut()}>Выйти ({user.email})</button></div>
     </header>
     {logoutError !== null && <p className="form-message form-message--error" role="alert">{logoutError}</p>}
+    <section className="account-danger-zone" aria-labelledby="delete-account-title"><h2 id="delete-account-title">Удаление аккаунта</h2><p>Будут безвозвратно удалены все резюме, вакансии, результаты, материалы и активные сессии.</p><label className="field"><span>Введите «УДАЛИТЬ АККАУНТ»</span><input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} disabled={isDeletingAccount} /></label>{deleteAccountError !== null && <p className="form-message form-message--error" role="alert">{deleteAccountError}</p>}<button className="button button--danger" type="button" disabled={deleteConfirmation !== 'УДАЛИТЬ АККАУНТ' || isDeletingAccount} onClick={() => void deleteAccount()}>{isDeletingAccount ? 'Удаляем…' : 'Удалить аккаунт'}</button></section>
     {apiState === 'error' && <section className="notice notice--error" aria-labelledby="api-error-title"><div><h2 id="api-error-title">Не удалось подключиться к API</h2><p>Проверьте, что API запущен, и повторите попытку.</p></div><button className="button button--secondary" type="button" onClick={() => void checkApiHealth()}>Повторить</button></section>}
     {route.name === 'resumes' && <ResumeLibrary />}
     {route.name === 'new-application' && <CreateVacancyPage onCreated={handleAnalysisCreated} onOpenAnalysis={handleAnalysisCreated} />}

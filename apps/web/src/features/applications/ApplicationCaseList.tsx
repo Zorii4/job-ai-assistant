@@ -1,19 +1,56 @@
-import type { ApplicationCaseAnalysisSummary } from '@job-ai-assistant/contracts';
-import React from 'react';
+import type { ApplicationCaseAnalysisSummary, ApplicationCaseStatus } from '@job-ai-assistant/contracts';
+import React, { useState } from 'react';
 
 import { getAnalysisErrorLabel, getAnalysisRunStatusLabel, getAnalysisStageLabel, isActiveAnalysisStatus } from '../analyses/analysisStatus';
 
-export function ApplicationCaseList({ applicationCases, onOpenAnalysis, onRetryAnalysis, retryingApplicationCaseId }: {
+const applicationStatusLabels = {
+  DRAFT: 'Черновик',
+  ANALYZING: 'Идёт первоначальный анализ',
+  ANALYSIS_READY: 'Анализ готов',
+  APPLIED: 'Отклик отправлен',
+  WAITING_RESPONSE: 'Ждём ответа',
+  HR_INVITED: 'Приглашение на HR-скрининг',
+  HR_PREPARATION_READY: 'Подготовка к HR готова',
+  HR_COMPLETED: 'HR-скрининг завершён',
+  REJECTED: 'Отказ',
+  OFFER: 'Получен оффер',
+  ARCHIVED: 'В архиве',
+  FAILED: 'Анализ требует внимания',
+} as const;
+
+const quickStageTransitions: Partial<Record<ApplicationCaseStatus, Array<{ status: ApplicationCaseStatus; label: string }>>> = {
+  DRAFT: [{ status: 'ARCHIVED', label: 'Архивировать' }],
+  ANALYSIS_READY: [{ status: 'APPLIED', label: 'Отклик отправлен' }],
+  APPLIED: [{ status: 'WAITING_RESPONSE', label: 'Жду ответа' }, { status: 'REJECTED', label: 'Получен отказ' }, { status: 'ARCHIVED', label: 'Архивировать' }],
+  WAITING_RESPONSE: [{ status: 'HR_INVITED', label: 'Меня пригласили' }, { status: 'REJECTED', label: 'Получен отказ' }, { status: 'ARCHIVED', label: 'Архивировать' }],
+  HR_INVITED: [{ status: 'HR_COMPLETED', label: 'HR-скрининг завершён' }, { status: 'REJECTED', label: 'Получен отказ' }, { status: 'ARCHIVED', label: 'Архивировать' }],
+  HR_COMPLETED: [{ status: 'WAITING_RESPONSE', label: 'Жду ответа' }, { status: 'OFFER', label: 'Получен оффер' }, { status: 'REJECTED', label: 'Получен отказ' }, { status: 'ARCHIVED', label: 'Архивировать' }],
+  HR_PREPARATION_READY: [{ status: 'HR_COMPLETED', label: 'HR-скрининг завершён' }, { status: 'ARCHIVED', label: 'Архивировать' }],
+  FAILED: [{ status: 'ARCHIVED', label: 'Архивировать' }],
+  OFFER: [{ status: 'ARCHIVED', label: 'Архивировать' }],
+};
+
+const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+});
+
+export function ApplicationCaseList({ applicationCases, onOpenAnalysis, onRetryAnalysis, onUpdateStage, retryingApplicationCaseId, updatingApplicationCaseId }: {
   applicationCases: ApplicationCaseAnalysisSummary[];
   onOpenAnalysis: (applicationCaseId: string, runId: string) => void;
   onRetryAnalysis: (applicationCaseId: string) => void;
+  onUpdateStage: (applicationCaseId: string, status: ApplicationCaseStatus) => void;
   retryingApplicationCaseId: string | null;
+  updatingApplicationCaseId: string | null;
 }) {
-  const activeCases = applicationCases.filter((applicationCase) => (
+  const [statusFilter, setStatusFilter] = useState<ApplicationCaseStatus | 'ALL'>('ALL');
+  const visibleCases = statusFilter === 'ALL' ? applicationCases : applicationCases.filter((item) => item.status === statusFilter);
+  const activeCases = visibleCases.filter((applicationCase) => (
     applicationCase.analysisRun !== null && isActiveAnalysisStatus(applicationCase.analysisRun.status)
   ));
-  const completedCases = applicationCases.filter((applicationCase) => applicationCase.analysisRun?.status === 'SUCCEEDED');
-  const otherCases = applicationCases.filter((applicationCase) => (
+  const completedCases = visibleCases.filter((applicationCase) => applicationCase.analysisRun?.status === 'SUCCEEDED');
+  const otherCases = visibleCases.filter((applicationCase) => (
     !activeCases.includes(applicationCase) && !completedCases.includes(applicationCase)
   ));
 
@@ -22,22 +59,25 @@ export function ApplicationCaseList({ applicationCases, onOpenAnalysis, onRetryA
       <div className="application-case-list__heading">
         <p className="eyebrow">ВАШИ ВАКАНСИИ</p>
         <h2 id="application-cases-title">Состояние анализов</h2>
+        <label className="field"><span>Фильтр статуса</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ApplicationCaseStatus | 'ALL')}><option value="ALL">Все</option>{Object.entries(applicationStatusLabels).map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></label>
       </div>
-      {activeCases.length > 0 && <ApplicationCaseGroup title="В процессе" cases={activeCases} actionLabel="Открыть" onOpenAnalysis={onOpenAnalysis} onRetryAnalysis={onRetryAnalysis} retryingApplicationCaseId={retryingApplicationCaseId} />}
-      {completedCases.length > 0 && <ApplicationCaseGroup title="Готовые результаты" cases={completedCases} actionLabel="К результату" onOpenAnalysis={onOpenAnalysis} onRetryAnalysis={onRetryAnalysis} retryingApplicationCaseId={retryingApplicationCaseId} />}
-      {otherCases.length > 0 && <ApplicationCaseGroup title="Другие вакансии" cases={otherCases} actionLabel="Открыть" onOpenAnalysis={onOpenAnalysis} onRetryAnalysis={onRetryAnalysis} retryingApplicationCaseId={retryingApplicationCaseId} />}
-      {applicationCases.length === 0 && <p className="form-message" role="status">Здесь появится ход и результат запущенных анализов.</p>}
+      {activeCases.length > 0 && <ApplicationCaseGroup title="В процессе" cases={activeCases} actionLabel="Открыть" onOpenAnalysis={onOpenAnalysis} onRetryAnalysis={onRetryAnalysis} onUpdateStage={onUpdateStage} retryingApplicationCaseId={retryingApplicationCaseId} updatingApplicationCaseId={updatingApplicationCaseId} />}
+      {completedCases.length > 0 && <ApplicationCaseGroup title="Готовые результаты" cases={completedCases} actionLabel="К результату" onOpenAnalysis={onOpenAnalysis} onRetryAnalysis={onRetryAnalysis} onUpdateStage={onUpdateStage} retryingApplicationCaseId={retryingApplicationCaseId} updatingApplicationCaseId={updatingApplicationCaseId} />}
+      {otherCases.length > 0 && <ApplicationCaseGroup title="Другие вакансии" cases={otherCases} actionLabel="Открыть" onOpenAnalysis={onOpenAnalysis} onRetryAnalysis={onRetryAnalysis} onUpdateStage={onUpdateStage} retryingApplicationCaseId={retryingApplicationCaseId} updatingApplicationCaseId={updatingApplicationCaseId} />}
+      {visibleCases.length === 0 && <p className="form-message" role="status">Для этого фильтра вакансий нет.</p>}
     </section>
   );
 }
 
-function ApplicationCaseGroup({ title, cases, actionLabel, onOpenAnalysis, onRetryAnalysis, retryingApplicationCaseId }: {
+function ApplicationCaseGroup({ title, cases, actionLabel, onOpenAnalysis, onRetryAnalysis, onUpdateStage, retryingApplicationCaseId, updatingApplicationCaseId }: {
   title: string;
   cases: ApplicationCaseAnalysisSummary[];
   actionLabel: string;
   onOpenAnalysis: (applicationCaseId: string, runId: string) => void;
   onRetryAnalysis: (applicationCaseId: string) => void;
+  onUpdateStage: (applicationCaseId: string, status: ApplicationCaseStatus) => void;
   retryingApplicationCaseId: string | null;
+  updatingApplicationCaseId: string | null;
 }) {
   return (
     <section className="application-case-group" aria-label={title}>
@@ -47,7 +87,13 @@ function ApplicationCaseGroup({ title, cases, actionLabel, onOpenAnalysis, onRet
           const run = applicationCase.analysisRun;
           const isFailed = run?.status === 'FAILED';
           const isRetrying = retryingApplicationCaseId === applicationCase.id;
-          return <li key={applicationCase.id} className="application-case-card"><div><h4>{applicationCase.title}</h4><p>{run === null ? 'Черновик' : isFailed ? getAnalysisErrorLabel(run.errorCode) : `${getAnalysisRunStatusLabel(run.status)}${run.currentStage === null ? '' : ` · ${getAnalysisStageLabel(run.currentStage)}`}`}</p></div>{run !== null && (isFailed ? <button className="button button--secondary button--small" type="button" disabled={isRetrying} onClick={() => onRetryAnalysis(applicationCase.id)}>{isRetrying ? 'Повторяем…' : 'Повторить анализ'}</button> : <button className="button button--secondary button--small" type="button" onClick={() => onOpenAnalysis(applicationCase.id, run.id)}>{actionLabel}</button>)}</li>;
+          const isUpdatingStage = updatingApplicationCaseId === applicationCase.id;
+          const analysisStatus = run === null
+            ? null
+            : isFailed
+              ? getAnalysisErrorLabel(run.errorCode)
+              : `${getAnalysisRunStatusLabel(run.status)}${run.currentStage === null ? '' : ` · ${getAnalysisStageLabel(run.currentStage)}`}`;
+          return <li key={applicationCase.id} className="application-case-card"><div><h4>{applicationCase.title}</h4><p className="application-case-card__lifecycle">{applicationStatusLabels[applicationCase.status]}</p>{analysisStatus !== null && <p>{analysisStatus}</p>}<p className="application-case-card__dates">Создано: {dateFormatter.format(new Date(applicationCase.createdAt))} · Обновлено: {dateFormatter.format(new Date(applicationCase.updatedAt))}</p></div><div className="application-case-card__actions"><label className="field"><span className="sr-only">Изменить статус</span><select value={applicationCase.status} disabled={isUpdatingStage || isActiveAnalysisStatus(run?.status ?? 'SUCCEEDED')} onChange={(event) => onUpdateStage(applicationCase.id, event.target.value as ApplicationCaseStatus)}>{Object.entries(applicationStatusLabels).map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></label>{run !== null && (isFailed ? <button className="button button--secondary button--small" type="button" disabled={isRetrying || isUpdatingStage} onClick={() => onRetryAnalysis(applicationCase.id)}>{isRetrying ? 'Повторяем…' : 'Повторить анализ'}</button> : <button className="button button--secondary button--small" type="button" disabled={isUpdatingStage} onClick={() => onOpenAnalysis(applicationCase.id, run.id)}>{actionLabel}</button>)}{!isActiveAnalysisStatus(run?.status ?? 'SUCCEEDED') && quickStageTransitions[applicationCase.status]?.map((transition) => <button key={transition.status} className="button button--secondary button--small" type="button" disabled={isRetrying || isUpdatingStage} onClick={() => onUpdateStage(applicationCase.id, transition.status)}>{isUpdatingStage ? 'Сохраняем…' : transition.label}</button>)}</div></li>;
         })}
       </ul>
     </section>

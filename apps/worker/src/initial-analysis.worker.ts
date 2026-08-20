@@ -122,6 +122,12 @@ export async function processInitialAnalysisJob(
        WHERE id = $1`,
       [job.applicationCaseId],
     );
+    await dependencies.database.query(
+      `INSERT INTO stage_event (id, "applicationCaseId", "fromStage", "toStage", source, "createdAt")
+       VALUES (concat('system-', $1, '-analysis-ready'), $1, 'ANALYZING', 'ANALYSIS_READY', 'SYSTEM', CURRENT_TIMESTAMP)
+       ON CONFLICT DO NOTHING`,
+      [job.applicationCaseId],
+    );
   } catch {
     // A persistence error after a completed workflow may be retried by PgBoss.
     // The artifact inserts are idempotent and the run is atomically claimed again.
@@ -222,6 +228,12 @@ async function markRunForRetryOrFailure(
     `UPDATE application_case
      SET status = 'FAILED', "currentStage" = 'FAILED', "updatedAt" = CURRENT_TIMESTAMP
      WHERE id = $1`,
+    [job.applicationCaseId],
+  );
+  await database.query(
+    `INSERT INTO stage_event (id, "applicationCaseId", "fromStage", "toStage", source, "createdAt")
+     VALUES (concat('system-', $1, '-failed'), $1, 'ANALYZING', 'FAILED', 'SYSTEM', CURRENT_TIMESTAMP)
+     ON CONFLICT DO NOTHING`,
     [job.applicationCaseId],
   );
   await database.query(

@@ -13,6 +13,7 @@ import {
   getInitialAnalysisResult,
   getApiHealth,
   getCurrentUser,
+  deleteCurrentUser,
   getResumes,
   requestPasswordReset,
   signInWithPassword,
@@ -22,7 +23,20 @@ import {
   resetArtifactToGeneratedContent,
   updateInitialAnalysisResult,
   resetInitialAnalysisResult,
+  updateApplicationCaseStage,
 } from '../src/api.js';
+
+test('deletes the current account only with the required confirmation phrase', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let url = '';
+  let request: RequestInit | undefined;
+  globalThis.fetch = async (input, init) => { url = String(input); request = init; return new Response(JSON.stringify({ deleted: true }), { status: 200 }); };
+  await deleteCurrentUser('http://api.test');
+  assert.equal(url, 'http://api.test/users/me');
+  assert.equal(request?.method, 'DELETE');
+  assert.equal(request?.body, JSON.stringify({ confirmation: 'УДАЛИТЬ АККАУНТ' }));
+});
 
 test('accepts a valid API healthcheck response', async (t) => {
   const originalFetch = globalThis.fetch;
@@ -159,6 +173,7 @@ test('loads server-owned vacancy snapshots with their analysis runs', async (t) 
         title: 'Backend developer',
         status: 'ANALYZING',
         currentStage: 'ANALYZING',
+        createdAt: '2026-08-13T12:00:00.000Z',
         updatedAt: '2026-08-13T12:00:00.000Z',
         analysisRun: {
           id: 'run_1',
@@ -175,6 +190,21 @@ test('loads server-owned vacancy snapshots with their analysis runs', async (t) 
   };
 
   assert.equal((await getApplicationCaseAnalyses('http://api.test'))[0]?.analysisRun?.status, 'RUNNING');
+});
+
+test('updates a vacancy stage with session cookies', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  globalThis.fetch = async (input, init) => {
+    assert.equal(input, 'http://api.test/applications/application_1/stage');
+    assert.equal(init?.method, 'PATCH');
+    assert.equal(init?.credentials, 'include');
+    assert.equal(init?.body, JSON.stringify({ status: 'APPLIED' }));
+    return Response.json({ schemaVersion: API_SCHEMA_VERSION });
+  };
+
+  await updateApplicationCaseStage('http://api.test', 'application_1', 'APPLIED');
 });
 
 test('saves and resets the independently edited full report', async (t) => {

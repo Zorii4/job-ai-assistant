@@ -672,6 +672,27 @@ h3 {
   min-width: 0;
 }
 
+.account-danger-zone {
+  display: grid;
+  gap: var(--space-sm);
+  margin-top: var(--space-xl);
+  padding: var(--space-lg);
+  border: var(--rule-width) solid var(--color-danger);
+  border-radius: var(--radius-card);
+  background: var(--color-paper-raised);
+}
+
+.account-danger-zone p { margin: 0; color: var(--color-ink-muted); font-size: var(--text-sm); line-height: var(--line-body); }
+.account-danger-zone .button { justify-self: start; }
+
+.application-case-card__actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2xs);
+}
+
 .application-case-card h4 {
   overflow-wrap: anywhere;
   font-size: var(--text-sm);
@@ -681,6 +702,16 @@ h3 {
   margin: var(--space-3xs) 0 0;
   color: var(--color-ink-muted);
   font-size: var(--text-xs);
+}
+
+.application-case-card__lifecycle {
+  color: var(--color-ink);
+  font-weight: 650;
+}
+
+.application-case-card__dates {
+  color: var(--color-ink-subtle);
+  font-family: var(--font-mono);
 }
 
 .analysis-state {
