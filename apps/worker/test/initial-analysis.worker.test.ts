@@ -119,14 +119,17 @@ test('marks a workflow failure terminally without storing raw errors or requeuin
       database,
       retryRemaining: true,
       async runInitialAnalysis() {
-        throw new Error('private provider error');
+        throw Object.assign(new Error('private provider error'), {
+          llmErrorCode: 'LLM_RESPONSE_INVALID',
+          stepName: 'analyst',
+        });
       },
     },
   );
 
   assert.equal(queries.some((query) => query.values.includes('private provider error')), false);
   assert.equal(queries.some((query) => query.values.includes('WORKFLOW_RETRY')), false);
-  assert.deepEqual(queries.at(-3)?.values, ['run-1']);
+  assert.deepEqual(queries.at(-3)?.values, ['run-1', 'ANALYST_RESPONSE_INVALID']);
   assert.deepEqual(queries.at(-2)?.values, ['application-1']);
   assert.deepEqual(queries.at(-1)?.values, ['application-1']);
   assert.match(queries.at(-1)?.text ?? '', /initialAnalysisUnitsUsed/);

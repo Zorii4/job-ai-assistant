@@ -31,6 +31,21 @@ type InitialArtifact = {
   generatedContent: string;
 };
 
+type TerminalAnalysisErrorCode =
+  | 'ANALYST_TIMEOUT'
+  | 'ANALYST_NETWORK_ERROR'
+  | 'ANALYST_RESPONSE_INVALID'
+  | 'PRODUCER_TIMEOUT'
+  | 'PRODUCER_NETWORK_ERROR'
+  | 'PRODUCER_RESPONSE_INVALID'
+  | 'CRITIC_TIMEOUT'
+  | 'CRITIC_NETWORK_ERROR'
+  | 'CRITIC_RESPONSE_INVALID'
+  | 'FINAL_TIMEOUT'
+  | 'FINAL_NETWORK_ERROR'
+  | 'FINAL_RESPONSE_INVALID'
+  | 'WORKFLOW_FAILED';
+
 export async function processInitialAnalysisJob(
   payload: InitialAnalysisJobPayload,
   dependencies: {
@@ -67,11 +82,16 @@ export async function processInitialAnalysisJob(
         }
       },
     });
-  } catch {
+  } catch (error) {
     // LLM workflow already owns its bounded model retries. Re-running the full
     // Analyst -> Producer -> Critic pipeline would duplicate cost and hide the
     // actual terminal outcome from the user.
-    await markRunForRetryOrFailure(dependencies.database, job, false);
+    await markRunForRetryOrFailure(
+      dependencies.database,
+      job,
+      false,
+      getTerminalAnalysisErrorCode(error),
+    );
     return;
   }
 
@@ -177,6 +197,7 @@ async function markRunForRetryOrFailure(
   database: WorkerDatabase,
   job: InitialAnalysisJobPayload,
   retryRemaining: boolean,
+  terminalErrorCode: TerminalAnalysisErrorCode = 'WORKFLOW_FAILED',
 ): Promise<void> {
   if (retryRemaining) {
     await database.query(
@@ -191,11 +212,11 @@ async function markRunForRetryOrFailure(
 
   await database.query(
     `UPDATE analysis_run
-     SET status = 'FAILED', "currentStage" = NULL, "errorCode" = 'WORKFLOW_FAILED',
-         "errorMessageSanitized" = 'WORKFLOW_FAILED', "finishedAt" = CURRENT_TIMESTAMP,
+     SET status = 'FAILED', "currentStage" = NULL, "errorCode" = $2,
+         "errorMessageSanitized" = $2, "finishedAt" = CURRENT_TIMESTAMP,
          "updatedAt" = CURRENT_TIMESTAMP
      WHERE id = $1`,
-    [job.analysisRunId],
+    [job.analysisRunId, terminalErrorCode],
   );
   await database.query(
     `UPDATE application_case
@@ -211,4 +232,45 @@ async function markRunForRetryOrFailure(
      WHERE application.id = $1 AND account.id = application."userId"`,
     [job.applicationCaseId],
   );
+}
+
+function getTerminalAnalysisErrorCode(error: unknown): TerminalAnalysisErrorCode {
+  if (typeof error !== 'object' || error === null) {
+    return 'WORKFLOW_FAILED';
+  }
+
+  const record = error as Record<string, unknown>;
+  const llmErrorCode = record.llmErrorCode;
+  const stepName = record.stepName;
+
+  if (
+    llmErrorCode !== 'LLM_TIMEOUT' &&
+    llmErrorCode !== 'LLM_NETWORK_ERROR' &&
+    llmErrorCode !== 'LLM_RESPONSE_INVALID'
+  ) {
+    return 'WORKFLOW_FAILED';
+  }
+
+  const stage = getErrorStage(stepName);
+
+  if (stage === undefined) {
+    return 'WORKFLOW_FAILED';
+  }
+
+  const suffix = {
+    LLM_TIMEOUT: 'TIMEOUT',
+    LLM_NETWORK_ERROR: 'NETWORK_ERROR',
+    LLM_RESPONSE_INVALID: 'RESPONSE_INVALID',
+  }[llmErrorCode];
+
+  return `${stage}_${suffix}` as TerminalAnalysisErrorCode;
+}
+
+function getErrorStage(stepName: unknown): 'ANALYST' | 'PRODUCER' | 'CRITIC' | 'FINAL' | undefined {
+  if (stepName === 'analyst') return 'ANALYST';
+  if (typeof stepName !== 'string') return undefined;
+  if (stepName.startsWith('producer.')) return 'PRODUCER';
+  if (stepName.startsWith('critic.')) return 'CRITIC';
+  if (stepName === 'orchestrator.final') return 'FINAL';
+  return undefined;
 }

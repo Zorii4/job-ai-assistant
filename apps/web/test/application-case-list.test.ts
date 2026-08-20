@@ -14,9 +14,11 @@ test('renders server-restored active, completed and failed analysis snapshots', 
       applicationCases: [
         { id: 'application-queued', title: 'Queued role', status: 'ANALYZING', currentStage: 'ANALYZING', updatedAt, analysisRun: { id: 'run-queued', applicationCaseId: 'application-queued', workflowType: 'INITIAL_ANALYSIS', status: 'QUEUED', currentStage: null, errorCode: null, createdAt: updatedAt, updatedAt } },
         { id: 'application-ready', title: 'Ready role', status: 'ANALYSIS_READY', currentStage: 'ANALYSIS_READY', updatedAt, analysisRun: { id: 'run-ready', applicationCaseId: 'application-ready', workflowType: 'INITIAL_ANALYSIS', status: 'SUCCEEDED', currentStage: null, errorCode: null, createdAt: updatedAt, updatedAt } },
-        { id: 'application-failed', title: 'Failed role', status: 'FAILED', currentStage: 'FAILED', updatedAt, analysisRun: { id: 'run-failed', applicationCaseId: 'application-failed', workflowType: 'INITIAL_ANALYSIS', status: 'FAILED', currentStage: null, errorCode: 'WORKFLOW_FAILED', createdAt: updatedAt, updatedAt } },
+        { id: 'application-failed', title: 'Failed role', status: 'FAILED', currentStage: 'FAILED', updatedAt, analysisRun: { id: 'run-failed', applicationCaseId: 'application-failed', workflowType: 'INITIAL_ANALYSIS', status: 'FAILED', currentStage: null, errorCode: 'ANALYST_RESPONSE_INVALID', createdAt: updatedAt, updatedAt } },
       ],
       onOpenAnalysis: () => undefined,
+      onRetryAnalysis: () => undefined,
+      retryingApplicationCaseId: null,
     }),
   );
 
@@ -27,4 +29,6 @@ test('renders server-restored active, completed and failed analysis snapshots', 
   assert.match(markup, /Ready role/);
   assert.match(markup, /Failed role/);
   assert.match(markup, /К результату/);
+  assert.match(markup, /Сбой на этапе анализа соответствия/);
+  assert.match(markup, /Повторить анализ/);
 });

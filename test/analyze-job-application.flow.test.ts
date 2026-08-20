@@ -3,7 +3,10 @@ import { after, before, test } from "node:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AnalyzeJobApplicationProgressEvent } from "../src/types/jobApplication.js";
+import {
+  WebAnalysisWorkflowError,
+  type AnalyzeJobApplicationProgressEvent
+} from "../src/types/jobApplication.js";
 import type { AnalysisRunPersistence } from "../src/app/ports/analysisRunPersistence.js";
 
 const originalWorkingDirectory = process.cwd();
@@ -51,6 +54,26 @@ test("Mock fast flow blocks final output when critical findings remain", async (
       { stage: "producer", stepName: "producer.v1" },
       { stage: "critic", stepName: "critic.v1" }
     ]
+  );
+});
+
+test("web flow exposes only a safe structured workflow failure", async () => {
+  process.env.ANALYSIS_MODE = "fast";
+  process.env.MAX_REVISION_CYCLES = "2";
+
+  await assert.rejects(
+    analyzeJobApplication({
+      resumeText: "Candidate has product delivery experience.",
+      vacancyText: "The role requires product delivery and collaboration.",
+      source: "web"
+    }),
+    (error) => {
+      assert.ok(error instanceof WebAnalysisWorkflowError);
+      assert.equal(error.llmErrorCode, "LLM_UNKNOWN_ERROR");
+      assert.equal(error.stepName, "critic.v1");
+      assert.equal(error.message, "LLM_UNKNOWN_ERROR");
+      return true;
+    }
   );
 });
 

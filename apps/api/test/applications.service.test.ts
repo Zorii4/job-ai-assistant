@@ -311,6 +311,133 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
   });
 });
 
+test('requeues the owners failed analysis without creating a second run or double-charging quota', async () => {
+  const runUpdates: unknown[] = [];
+  let runCreationAttempted = false;
+  let usageReservation: unknown;
+  let queuePayload: unknown;
+  const database = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) {
+      return callback(this);
+    },
+    applicationCase: {
+      async findFirst() {
+        return { id: 'application-1', status: 'FAILED' as const };
+      },
+      async update() { return {}; },
+    },
+    user: {
+      async findUnique() { return { planCode: 'ALPHA' }; },
+      async updateMany(arguments_: unknown) {
+        usageReservation = arguments_;
+        return { count: 1 };
+      },
+    },
+    analysisRun: {
+      async findFirst(arguments_: unknown) {
+        assert.deepEqual(arguments_, {
+          where: {
+            applicationCaseId: 'application-1',
+            workflowType: 'INITIAL_ANALYSIS',
+            status: 'FAILED',
+          },
+          select: { id: true },
+        });
+        return { id: 'run-1' };
+      },
+      async count() { return 0; },
+      async create() { runCreationAttempted = true; return {}; },
+      async update(arguments_: unknown) {
+        runUpdates.push(arguments_);
+        if ((arguments_ as { data: { status?: string } }).data.status === 'QUEUED') {
+          return {
+            id: 'run-1',
+            applicationCaseId: 'application-1',
+            workflowType: 'INITIAL_ANALYSIS' as const,
+            status: 'QUEUED' as const,
+            currentStage: null,
+            errorCode: null,
+            createdAt,
+            updatedAt: createdAt,
+          };
+        }
+        return {};
+      },
+    },
+  };
+  const service = new ApplicationsService(database as never, {
+    async enqueueInitialAnalysis(payload: unknown) {
+      queuePayload = payload;
+      return 'queue-job-retry';
+    },
+  } as never);
+
+  const result = await service.launchInitialAnalysisForUser('user-1', 'application-1');
+
+  assert.equal(runCreationAttempted, false);
+  assert.deepEqual(result, {
+    id: 'run-1',
+    applicationCaseId: 'application-1',
+    workflowType: 'INITIAL_ANALYSIS',
+    status: 'QUEUED',
+    currentStage: null,
+    errorCode: null,
+    createdAt: '2026-08-03T18:00:00.000Z',
+    updatedAt: '2026-08-03T18:00:00.000Z',
+  });
+  assert.deepEqual(runUpdates[0], {
+    where: { id: 'run-1' },
+    data: {
+      status: 'QUEUED',
+      currentStage: null,
+      errorCode: null,
+      errorMessageSanitized: null,
+      queueJobId: null,
+      startedAt: null,
+      finishedAt: null,
+      finalMarkdown: null,
+      editedFinalMarkdown: null,
+    },
+    select: {
+      id: true,
+      applicationCaseId: true,
+      workflowType: true,
+      status: true,
+      currentStage: true,
+      errorCode: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  assert.deepEqual(runUpdates[1], {
+    where: { id: 'run-1' },
+    data: { queueJobId: 'queue-job-retry' },
+  });
+  assert.deepEqual(queuePayload, { applicationCaseId: 'application-1', analysisRunId: 'run-1' });
+  assert.deepEqual(usageReservation, {
+    where: { id: 'user-1', initialAnalysisUnitsUsed: { lt: 10 } },
+    data: { initialAnalysisUnitsUsed: { increment: 1 } },
+  });
+});
+
+test('rejects retry when a failed vacancy has no failed initial-analysis run', async () => {
+  const database = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
+    applicationCase: {
+      async findFirst() { return { id: 'application-1', status: 'FAILED' as const }; },
+    },
+    analysisRun: {
+      async findFirst() { return null; },
+    },
+  };
+  const service = new ApplicationsService(database as never, {} as never);
+
+  await assert.rejects(
+    service.launchInitialAnalysisForUser('user-1', 'application-1'),
+    (error: unknown) => error instanceof BadRequestException,
+  );
+});
+
 test('rejects a third active initial analysis before reserving quota or creating a run', async () => {
   let usageReservationAttempted = false;
   let runCreationAttempted = false;
