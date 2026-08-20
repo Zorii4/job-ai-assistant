@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-type MarkdownBlock = { type: 'heading'; level: number; text: string } | { type: 'list'; items: string[] } | { type: 'table'; rows: string[][] } | { type: 'quote'; text: string } | { type: 'code'; text: string } | { type: 'paragraph'; text: string };
+type MarkdownBlock = { type: 'heading'; level: number; text: string } | { type: 'list'; items: string[] } | { type: 'table'; rows: string[][] } | { type: 'quote'; text: string } | { type: 'code'; text: string } | { type: 'rule' } | { type: 'paragraph'; text: string };
 
 export function parseResumeMarkdown(markdown: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
@@ -9,6 +9,7 @@ export function parseResumeMarkdown(markdown: string): MarkdownBlock[] {
     const lines = block.split('\n'); const heading = /^(#{1,4})\s+(.+)$/.exec(lines[0] ?? '');
     if (heading) { blocks.push({ type: 'heading', level: heading[1].length, text: heading[2] }); continue; }
     if (block.startsWith('```') && block.endsWith('```')) { blocks.push({ type: 'code', text: lines.slice(1, -1).join('\n') }); continue; }
+    if (/^(?:\*{3,}|-{3,}|_{3,})\s*$/.test(block)) { blocks.push({ type: 'rule' }); continue; }
     if (lines.every((line) => /^>\s?/.test(line))) { blocks.push({ type: 'quote', text: lines.map((line) => line.replace(/^>\s?/, '')).join('\n') }); continue; }
     if (lines.every((line) => /^[-*+]\s+/.test(line))) { blocks.push({ type: 'list', items: lines.map((line) => line.replace(/^[-*+]\s+/, '')) }); continue; }
     if (lines.length >= 2 && /^\|?\s*:?-{3,}/.test(lines[1]?.trim() ?? '')) { blocks.push({ type: 'table', rows: lines.filter((_, index) => index !== 1).map(parseTableRow) }); continue; }
@@ -24,11 +25,13 @@ export function ResumeMarkdownPreview({ markdown }: { markdown: string }) {
     if (block.type === 'table') return <div className="resume-markdown-preview__table-wrap" key={index}><table><tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => rowIndex === 0 ? <th key={cellIndex} scope="col">{renderInline(cell)}</th> : <td key={cellIndex}>{renderInline(cell)}</td>)}</tr>)}</tbody></table></div>;
     if (block.type === 'quote') return <blockquote key={index}>{renderInline(block.text)}</blockquote>;
     if (block.type === 'code') return <pre key={index}><code>{block.text}</code></pre>;
+    if (block.type === 'rule') return <hr key={index} />;
     return <p key={index}>{renderInline(block.text)}</p>;
   })}</div>;
 }
 
-function renderInline(text: string): ReactNode[] { const parts = text.split(/(\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g); return parts.map((part, index) => { const match = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(part); const safeUrl = match ? getSafeHttpUrl(match[2]) : null; return match && safeUrl ? <a key={index} href={safeUrl} target="_blank" rel="noreferrer">{match[1]}</a> : part; }); }
+function renderInline(text: string): ReactNode[] { const parts = text.split(/(\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g); return parts.reduce<ReactNode[]>((nodes, part, index) => { const match = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(part); const safeUrl = match ? getSafeHttpUrl(match[2]) : null; return match && safeUrl ? [...nodes, <a key={`link-${index}`} href={safeUrl} target="_blank" rel="noreferrer">{match[1]}</a>] : [...nodes, ...renderTextEmphasis(part, index)]; }, []); }
+function renderTextEmphasis(text: string, index: number): ReactNode[] { return text.split(/(\*\*[^*\n]+\*\*)/g).map((part, partIndex) => part.startsWith('**') && part.endsWith('**') ? <strong key={`strong-${index}-${partIndex}`}>{part.slice(2, -2)}</strong> : part); }
 function parseTableRow(line: string): string[] { return line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim()); }
 
 export function getSafeHttpUrl(value: string): string | null {

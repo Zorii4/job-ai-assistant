@@ -93,7 +93,7 @@ test('creates a file draft with its safe file name', async () => {
       sourceText: 'private source text',
       sanitizedText: 'private source text',
       sanitizationStatus: 'PENDING_REVIEW',
-      sanitizationVersion: 'resume-sanitization-v4',
+      sanitizationVersion: 'resume-sanitization-v5',
     },
     select: {
       id: true,
