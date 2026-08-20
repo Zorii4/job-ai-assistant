@@ -127,6 +127,7 @@ model StageEvent {
 
 enum AnalysisWorkflowType {
   INITIAL_ANALYSIS
+  HR_PREPARATION
 }
 
 enum AnalysisRunStatus {
@@ -141,6 +142,7 @@ enum ArtifactType {
   COVER_LETTER
   RECRUITER_MESSAGE
   FOLLOW_UP
+  HR_SCREENING_PREPARATION
 }
 
 model AnalysisRun {

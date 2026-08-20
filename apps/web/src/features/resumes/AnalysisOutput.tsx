@@ -60,5 +60,6 @@ function getArtifactTitle(type: ArtifactSummary['type']): string {
     COVER_LETTER: 'Сопроводительное письмо',
     RECRUITER_MESSAGE: 'Сообщение рекрутеру',
     FOLLOW_UP: 'Follow-up',
+    HR_SCREENING_PREPARATION: 'Подготовка к HR-скринингу',
   }[type];
 }

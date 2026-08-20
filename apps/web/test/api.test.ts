@@ -24,6 +24,7 @@ import {
   updateInitialAnalysisResult,
   resetInitialAnalysisResult,
   updateApplicationCaseStage,
+  launchHrPreparation,
 } from '../src/api.js';
 
 test('deletes the current account only with the required confirmation phrase', async (t) => {
@@ -185,11 +186,32 @@ test('loads server-owned vacancy snapshots with their analysis runs', async (t) 
           createdAt: '2026-08-13T12:00:00.000Z',
           updatedAt: '2026-08-13T12:00:00.000Z',
         },
+        hrPreparationRun: null,
       }],
     });
   };
 
   assert.equal((await getApplicationCaseAnalyses('http://api.test'))[0]?.analysisRun?.status, 'RUNNING');
+});
+
+test('launches HR preparation with session cookies', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  globalThis.fetch = async (input, init) => {
+    assert.equal(input, 'http://api.test/applications/application_1/hr-preparation');
+    assert.equal(init?.method, 'POST');
+    assert.equal(init?.credentials, 'include');
+    return Response.json({
+      schemaVersion: API_SCHEMA_VERSION,
+      analysisRun: {
+        id: 'run_hr_1', applicationCaseId: 'application_1', workflowType: 'HR_PREPARATION', status: 'QUEUED',
+        currentStage: null, errorCode: null, createdAt: '2026-08-20T12:00:00.000Z', updatedAt: '2026-08-20T12:00:00.000Z',
+      },
+    });
+  };
+
+  assert.equal((await launchHrPreparation('http://api.test', 'application_1')).workflowType, 'HR_PREPARATION');
 });
 
 test('updates a vacancy stage with session cookies', async (t) => {

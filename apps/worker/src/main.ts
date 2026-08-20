@@ -4,13 +4,17 @@ import { PgBoss } from 'pg-boss';
 import { Pool } from 'pg';
 
 import {
+  HRPreparationJobPayloadSchema,
+  type HRPreparationJobPayload,
   InitialAnalysisJobPayloadSchema,
   type InitialAnalysisJobPayload,
 } from '@job-ai-assistant/contracts';
 
+import { processHRPreparationJob, type HRPreparationUseCase } from './hr-preparation.worker.js';
 import { processInitialAnalysisJob, type LegacyInitialAnalysis } from './initial-analysis.worker.js';
 
 const queueName = 'initial-analysis';
+const hrPreparationQueueName = 'hr-preparation';
 
 type LegacyWorkflowModule = {
   createAnalyzeJobApplication: (dependencies: {
@@ -23,6 +27,10 @@ type LegacyWorkflowModule = {
     };
     createRunId: () => string;
   }) => LegacyInitialAnalysis;
+};
+
+type HRPreparationWorkflowModule = {
+  createPrepareForHrScreening: () => HRPreparationUseCase;
 };
 
 export const initialAnalysisWorkerOptions = {
@@ -43,8 +51,15 @@ export async function startWorker(): Promise<void> {
     retryBackoff: true,
     expireInSeconds: 900,
   });
+  await boss.createQueue(hrPreparationQueueName, {
+    retryLimit: 2,
+    retryDelay: 5,
+    retryBackoff: true,
+    expireInSeconds: 600,
+  });
 
   const legacyWorkflow = await loadLegacyWorkflow();
+  const hrPreparationWorkflow = await loadHRPreparationWorkflow();
   await boss.work<InitialAnalysisJobPayload, void, typeof initialAnalysisWorkerOptions>(
     queueName,
     initialAnalysisWorkerOptions,
@@ -65,6 +80,26 @@ export async function startWorker(): Promise<void> {
         } catch {
           console.error('[worker] initial analysis failed', { analysisRunId: payload.analysisRunId });
           throw new Error('initial_analysis_failed');
+        }
+      }
+    },
+  );
+  await boss.work<HRPreparationJobPayload, void, typeof initialAnalysisWorkerOptions>(
+    hrPreparationQueueName,
+    initialAnalysisWorkerOptions,
+    async (jobs) => {
+      for (const job of jobs) {
+        const payload = HRPreparationJobPayloadSchema.parse(job.data);
+
+        try {
+          await processHRPreparationJob(payload, {
+            database,
+            prepareForHrScreening: hrPreparationWorkflow.createPrepareForHrScreening(),
+            retryRemaining: job.retryCount < job.retryLimit,
+          });
+        } catch {
+          console.error('[worker] HR preparation persistence failed', { analysisRunId: payload.analysisRunId });
+          throw new Error('hr_preparation_failed');
         }
       }
     },
@@ -100,6 +135,11 @@ function createDatabasePersistence(database: Pool, analysisRunId: string) {
 async function loadLegacyWorkflow(): Promise<LegacyWorkflowModule> {
   const modulePath = new URL('../../../dist/app/analyzeJobApplication.js', import.meta.url);
   return import(modulePath.href) as Promise<LegacyWorkflowModule>;
+}
+
+async function loadHRPreparationWorkflow(): Promise<HRPreparationWorkflowModule> {
+  const modulePath = new URL('../../../dist/app/prepareForHrScreening.js', import.meta.url);
+  return import(modulePath.href) as Promise<HRPreparationWorkflowModule>;
 }
 
 function loadProjectEnvironmentWhenMissing(variableName: string): void {

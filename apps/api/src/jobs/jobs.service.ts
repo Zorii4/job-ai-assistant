@@ -2,6 +2,8 @@ import { Injectable, type OnModuleDestroy } from '@nestjs/common';
 import { PgBoss } from 'pg-boss';
 
 import {
+  HRPreparationJobPayloadSchema,
+  type HRPreparationJobPayload,
   InitialAnalysisJobPayloadSchema,
   type InitialAnalysisJobPayload,
 } from '@job-ai-assistant/contracts';
@@ -9,6 +11,7 @@ import {
 import { getDatabaseUrl } from '../database/prisma.service.js';
 
 export const INITIAL_ANALYSIS_QUEUE = 'initial-analysis';
+export const HR_PREPARATION_QUEUE = 'hr-preparation';
 
 @Injectable()
 export class JobsService implements OnModuleDestroy {
@@ -23,6 +26,20 @@ export class JobsService implements OnModuleDestroy {
 
     if (jobId === null) {
       throw new Error('Failed to enqueue initial analysis job.');
+    }
+
+    return jobId;
+  }
+
+  async enqueueHrPreparation(payload: HRPreparationJobPayload): Promise<string> {
+    const job = HRPreparationJobPayloadSchema.parse(payload);
+    const boss = await this.getBoss();
+    const jobId = await boss.send(HR_PREPARATION_QUEUE, job, {
+      singletonKey: job.analysisRunId,
+    });
+
+    if (jobId === null) {
+      throw new Error('Failed to enqueue HR preparation job.');
     }
 
     return jobId;
@@ -57,6 +74,12 @@ export class JobsService implements OnModuleDestroy {
       retryDelay: 5,
       retryBackoff: true,
       expireInSeconds: 900,
+    });
+    await boss.createQueue(HR_PREPARATION_QUEUE, {
+      retryLimit: 2,
+      retryDelay: 5,
+      retryBackoff: true,
+      expireInSeconds: 600,
     });
 
     return boss;

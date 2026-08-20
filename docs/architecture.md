@@ -41,7 +41,8 @@ Initial AI workflow
 - `packages/contracts` — shared Zod runtime contracts для public API.
 - `prisma` — PostgreSQL schema и миграции.
 - `apps/worker` — отдельный PgBoss consumer. Он получает только IDs, загружает
-  snapshots из PostgreSQL и выполняет initial workflow без HTTP-сервера.
+  snapshots из PostgreSQL и выполняет initial workflow и отдельный HR-preparation
+  workflow без HTTP-сервера.
 - `compose.yaml` — локальный стек web, API, worker и PostgreSQL за одним origin.
 
 ### Initial AI core и legacy adapters
@@ -64,6 +65,14 @@ use case.
 
 Текущий persistence adapter сохраняет run-результаты на диск. Он не заменён
 database persistence и остаётся рабочим legacy-механизмом до отдельной миграции.
+
+HR-подготовка — отдельный одношаговый use case, не расширение Producer. После
+`HR_INVITED` worker использует только сохранённые snapshots обезличенного резюме и
+вакансии, а также `finalMarkdown` успешного initial run. Он делает один structured
+LLM-вызов без Critic и revision, валидирует 5–10 пар «вопрос — ответ» runtime-схемой
+и сохраняет отдельный read-only Artifact. Карточка приглашённой вакансии запускает
+этот workflow, показывает его статус и открывает готовый материал на существующей
+странице результата.
 
 ### Prompt boundary
 
@@ -171,6 +180,12 @@ initial analysis API атомарно резервирует одну из де�
 API: существующий `AnalysisRun` очищается до `QUEUED`, поэтому не создаются второй run и
 дубликаты результата. Возвращённая при предыдущем техническом сбое единица квоты
 резервируется снова и расходуется только при успешном завершении.
+После `HR_INVITED` отдельный защищённый endpoint создаёт один HR-preparation run для
+той же вакансии; очередь получает IDs, а worker atomically claim'ит run только при
+успешном initial analysis. HR worker получает snapshots и `finalMarkdown` из БД,
+делает один LLM-вызов, сохраняет idempotent Artifact и переводит вакансию в
+`HR_PREPARATION_READY`. Ошибка LLM завершает только HR run безопасным code и не
+повторяет initial workflow; доставка повторяется лишь для persistence-ошибки.
 Эти компоненты не должны обходить границы privacy, ownership или initial workflow.
 
 ## Архитектурные инварианты

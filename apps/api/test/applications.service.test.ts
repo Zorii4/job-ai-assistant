@@ -185,6 +185,7 @@ test('lists only the owners analysis snapshots without source texts', async () =
       createdAt: '2026-08-03T18:00:00.000Z',
       updatedAt: '2026-08-03T18:00:00.000Z',
     },
+    hrPreparationRun: null,
   }]);
   assert.deepEqual(findArguments, {
     where: { userId: 'user-1' },
@@ -197,6 +198,7 @@ test('lists only the owners analysis snapshots without source texts', async () =
       createdAt: true,
       updatedAt: true,
       analysisRuns: {
+        where: { workflowType: { in: ['INITIAL_ANALYSIS', 'HR_PREPARATION'] } },
         select: {
           id: true,
           applicationCaseId: true,
@@ -620,6 +622,145 @@ test('releases a reserved unit when the analysis queue is unavailable', async ()
   assert.deepEqual(failedStageEvent, {
     data: { applicationCaseId: 'application-1', fromStage: 'ANALYZING', toStage: 'FAILED', source: 'SYSTEM' },
   });
+});
+
+test('starts one queued HR preparation only for an invited vacancy and enqueues identifiers', async () => {
+  let createArguments: unknown;
+  let queuePayload: unknown;
+  let queueJobUpdate: unknown;
+  const database = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) {
+      return callback(this);
+    },
+    applicationCase: {
+      async findFirst(arguments_: unknown) {
+        assert.deepEqual(arguments_, {
+          where: { id: 'application-1', userId: 'user-1' },
+          select: { id: true, status: true },
+        });
+        return { id: 'application-1', status: 'HR_INVITED' as const };
+      },
+    },
+    analysisRun: {
+      async findFirst(arguments_: unknown) {
+        assert.deepEqual(arguments_, {
+          where: { applicationCaseId: 'application-1', workflowType: 'HR_PREPARATION' },
+          select: { id: true, status: true },
+        });
+        return null;
+      },
+      async create(arguments_: unknown) {
+        createArguments = arguments_;
+        return {
+          id: 'run-hr-1',
+          applicationCaseId: 'application-1',
+          workflowType: 'HR_PREPARATION' as const,
+          status: 'QUEUED' as const,
+          currentStage: null,
+          errorCode: null,
+          createdAt,
+          updatedAt: createdAt,
+        };
+      },
+      async update(arguments_: unknown) {
+        queueJobUpdate = arguments_;
+        return {};
+      },
+    },
+  };
+  const jobs = {
+    async enqueueHrPreparation(payload: unknown) {
+      queuePayload = payload;
+      return 'queue-job-hr-1';
+    },
+  };
+  const service = new ApplicationsService(database as never, jobs as never);
+
+  const result = await service.launchHrPreparationForUser('user-1', 'application-1');
+
+  assert.equal(result.workflowType, 'HR_PREPARATION');
+  assert.deepEqual(createArguments, {
+    data: {
+      applicationCaseId: 'application-1',
+      workflowType: 'HR_PREPARATION',
+      status: 'QUEUED',
+    },
+    select: {
+      id: true,
+      applicationCaseId: true,
+      workflowType: true,
+      status: true,
+      currentStage: true,
+      errorCode: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  assert.deepEqual(queuePayload, { applicationCaseId: 'application-1', analysisRunId: 'run-hr-1' });
+  assert.deepEqual(queueJobUpdate, { where: { id: 'run-hr-1' }, data: { queueJobId: 'queue-job-hr-1' } });
+});
+
+test('rejects HR preparation before an invitation, duplicate runs, and foreign vacancies', async () => {
+  const beforeInvitation = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
+    applicationCase: { async findFirst() { return { id: 'application-1', status: 'ANALYSIS_READY' as const }; } },
+  };
+  await assert.rejects(
+    new ApplicationsService(beforeInvitation as never, {} as never).launchHrPreparationForUser('user-1', 'application-1'),
+    (error: unknown) => error instanceof BadRequestException,
+  );
+
+  const duplicateRun = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
+    applicationCase: { async findFirst() { return { id: 'application-1', status: 'HR_INVITED' as const }; } },
+    analysisRun: { async findFirst() { return { id: 'run-hr-1', status: 'QUEUED' as const }; } },
+  };
+  await assert.rejects(
+    new ApplicationsService(duplicateRun as never, {} as never).launchHrPreparationForUser('user-1', 'application-1'),
+    (error: unknown) => error instanceof BadRequestException,
+  );
+
+  let findArguments: unknown;
+  const foreignVacancy = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
+    applicationCase: { async findFirst(arguments_: unknown) { findArguments = arguments_; return null; } },
+  };
+  await assert.rejects(
+    new ApplicationsService(foreignVacancy as never, {} as never).launchHrPreparationForUser('user-2', 'application-1'),
+    (error: unknown) => error instanceof NotFoundException,
+  );
+  assert.deepEqual(findArguments, {
+    where: { id: 'application-1', userId: 'user-2' },
+    select: { id: true, status: true },
+  });
+});
+
+test('marks only the HR run as failed when its queue is unavailable', async () => {
+  let updateArguments: unknown;
+  const database = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
+    applicationCase: { async findFirst() { return { id: 'application-1', status: 'HR_INVITED' as const }; } },
+    analysisRun: {
+      async findFirst() { return null; },
+      async create() {
+        return {
+          id: 'run-hr-1', applicationCaseId: 'application-1', workflowType: 'HR_PREPARATION' as const,
+          status: 'QUEUED' as const, currentStage: null, errorCode: null, createdAt, updatedAt: createdAt,
+        };
+      },
+      async update(arguments_: unknown) { updateArguments = arguments_; return {}; },
+    },
+  };
+  const service = new ApplicationsService(database as never, {
+    async enqueueHrPreparation() { throw new Error('queue unavailable'); },
+  } as never);
+
+  await assert.rejects(
+    service.launchHrPreparationForUser('user-1', 'application-1'),
+    (error: unknown) => error instanceof HttpException && error.getStatus() === 503,
+  );
+  assert.equal((updateArguments as { where: { id: string } }).where.id, 'run-hr-1');
+  assert.deepEqual((updateArguments as { data: Record<string, unknown> }).data.errorCode, 'QUEUE_UNAVAILABLE');
 });
 
 test('does not create an eleventh vacancy for the same user', async () => {

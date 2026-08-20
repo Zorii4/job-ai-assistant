@@ -288,6 +288,24 @@ export async function launchInitialAnalysis(
   return payload.analysisRun;
 }
 
+export async function launchHrPreparation(
+  baseUrl: string,
+  applicationCaseId: string,
+): Promise<AnalysisRunSummary> {
+  const response = await fetch(`${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}/hr-preparation`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+
+  const payload = await parseResponse(
+    response,
+    AnalysisRunResponseSchema,
+    'API returned an invalid HR preparation run response.',
+  );
+
+  return payload.analysisRun;
+}
+
 export async function getInitialAnalysisStatus(
   baseUrl: string,
   applicationCaseId: string,
