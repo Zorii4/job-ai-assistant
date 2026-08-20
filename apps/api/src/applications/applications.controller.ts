@@ -99,6 +99,22 @@ export class ApplicationsController {
     });
   }
 
+  @Post(':applicationCaseId/hr-preparation')
+  async launchHrPreparation(
+    @CurrentSession() session: AuthenticatedSession,
+    @Param('applicationCaseId') applicationCaseId: string,
+  ) {
+    const analysisRun = await this.applicationsService.launchHrPreparationForUser(
+      session.user.id,
+      parseApplicationCaseId(applicationCaseId),
+    );
+
+    return AnalysisRunResponseSchema.parse({
+      schemaVersion: API_SCHEMA_VERSION,
+      analysisRun,
+    });
+  }
+
   @Get(':applicationCaseId/analysis/:analysisRunId')
   async getInitialAnalysisStatus(
     @CurrentSession() session: AuthenticatedSession,

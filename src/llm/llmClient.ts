@@ -348,6 +348,10 @@ function createMockResponse(systemPrompt: string, userPrompt: string): string {
     return createMockCriticResponse(userPrompt, inputLength);
   }
 
+  if (agentName === "hrPreparationAgent") {
+    return createMockHrPreparationResponse();
+  }
+
   return `
 # Mock response: ${agentName}
 
@@ -362,6 +366,16 @@ This is a local test Markdown response generated with \`LLM_MOCK=true\`.
 
 The orchestrator successfully called ${agentName}.
 `.trim();
+}
+
+function createMockHrPreparationResponse(): string {
+  return JSON.stringify({
+    schemaVersion: "1",
+    items: Array.from({ length: 5 }, (_, index) => ({
+      question: `Как вы объясните свой релевантный опыт для этой роли ${index + 1}?`,
+      answer: "Я опираюсь на подтверждённый опыт из резюме и готов спокойно пояснить, какие задачи выполнял и как этот опыт соотносится с ролью.",
+    })),
+  });
 }
 
 function createMockAnalystResponse(inputLength: number): string {
@@ -471,6 +485,10 @@ function detectAgentName(systemPrompt: string): string {
     systemPrompt.includes("Application Quality Critic")
   ) {
     return "criticAgent";
+  }
+
+  if (systemPrompt.includes("hrPreparationAgent") || systemPrompt.includes("HR Preparation Generator")) {
+    return "hrPreparationAgent";
   }
 
   if (

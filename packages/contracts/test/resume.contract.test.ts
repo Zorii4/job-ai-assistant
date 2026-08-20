@@ -16,6 +16,7 @@ import {
   API_SCHEMA_VERSION,
   ResumeSourceTypeSchema,
   VacancySourceTypeSchema,
+  ArtifactTypeSchema,
 } from '../src/index.js';
 
 test('allows only file sources for resumes and vacancies', () => {
@@ -23,6 +24,10 @@ test('allows only file sources for resumes and vacancies', () => {
   assert.equal(ResumeSourceTypeSchema.safeParse('TEXT').success, false);
   assert.equal(VacancySourceTypeSchema.safeParse('FILE').success, true);
   assert.equal(VacancySourceTypeSchema.safeParse('TEXT').success, false);
+});
+
+test('recognizes the HR preparation artifact type', () => {
+  assert.equal(ArtifactTypeSchema.safeParse('HR_SCREENING_PREPARATION').success, true);
 });
 
 test('validates a manually edited sanitized resume', () => {

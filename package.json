@@ -10,7 +10,7 @@
   "scripts": {
     "analyze": "tsx src/cli/analyzeFromDataFolder.ts",
     "bot": "tsx src/telegram/bot.ts",
-    "build": "npm run build:legacy && npm run build:contracts && npm run build:api && npm run build:worker && npm run build:web",
+    "build": "npm run build:contracts && npm run build:legacy && npm run build:api && npm run build:worker && npm run build:web",
     "build:api": "npm run build --workspace @job-ai-assistant/api",
     "build:contracts": "npm run build --workspace @job-ai-assistant/contracts",
     "build:legacy": "tsc",

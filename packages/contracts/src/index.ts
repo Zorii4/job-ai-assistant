@@ -153,12 +153,13 @@ export const ApplicationCaseResponseSchema = z
   .strict();
 
 export const AnalysisRunStatusSchema = z.enum(['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED']);
+export const AnalysisWorkflowTypeSchema = z.enum(['INITIAL_ANALYSIS', 'HR_PREPARATION']);
 
 export const AnalysisRunSummarySchema = z
   .object({
     id: z.string().min(1),
     applicationCaseId: z.string().min(1),
-    workflowType: z.literal('INITIAL_ANALYSIS'),
+    workflowType: AnalysisWorkflowTypeSchema,
     status: AnalysisRunStatusSchema,
     currentStage: z.string().min(1).nullable(),
     errorCode: z.string().min(1).max(128).nullable(),
@@ -178,6 +179,7 @@ export const ApplicationCaseAnalysisSummarySchema = z
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
     analysisRun: AnalysisRunSummarySchema.nullable(),
+    hrPreparationRun: AnalysisRunSummarySchema.nullable(),
   })
   .strict();
 
@@ -232,6 +234,7 @@ export const ArtifactTypeSchema = z.enum([
   'COVER_LETTER',
   'RECRUITER_MESSAGE',
   'FOLLOW_UP',
+  'HR_SCREENING_PREPARATION',
 ]);
 
 export const ArtifactSummarySchema = z.object({
@@ -244,6 +247,22 @@ export const ArtifactSummarySchema = z.object({
 }).strict();
 
 export type ArtifactSummary = z.infer<typeof ArtifactSummarySchema>;
+
+export const HRPreparationItemSchema = z
+  .object({
+    question: z.string().trim().min(10).max(400),
+    answer: z.string().trim().min(20).max(2_000),
+  })
+  .strict();
+
+export const HRPreparationResultSchema = z
+  .object({
+    schemaVersion: z.literal('1'),
+    items: z.array(HRPreparationItemSchema).min(5).max(10),
+  })
+  .strict();
+
+export type HRPreparationResult = z.infer<typeof HRPreparationResultSchema>;
 
 export const UpdateArtifactRequestSchema = z.object({
   editedContent: z.string().trim().min(1).max(50_000),
@@ -269,3 +288,12 @@ export const InitialAnalysisJobPayloadSchema = z
   .strict();
 
 export type InitialAnalysisJobPayload = z.infer<typeof InitialAnalysisJobPayloadSchema>;
+
+export const HRPreparationJobPayloadSchema = z
+  .object({
+    applicationCaseId: z.string().min(1).max(128),
+    analysisRunId: z.string().min(1).max(128),
+  })
+  .strict();
+
+export type HRPreparationJobPayload = z.infer<typeof HRPreparationJobPayloadSchema>;

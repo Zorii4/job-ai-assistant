@@ -77,7 +77,7 @@ const initialAnalysisResultSelect = {
 type AnalysisRunRecord = {
   id: string;
   applicationCaseId: string;
-  workflowType: 'INITIAL_ANALYSIS';
+  workflowType: 'INITIAL_ANALYSIS' | 'HR_PREPARATION';
   status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
   currentStage: string | null;
   errorCode: string | null;
@@ -117,7 +117,10 @@ export class ApplicationsService {
         currentStage: true,
         createdAt: true,
         updatedAt: true,
-        analysisRuns: { select: analysisRunSummarySelect },
+        analysisRuns: {
+          where: { workflowType: { in: ['INITIAL_ANALYSIS', 'HR_PREPARATION'] } },
+          select: analysisRunSummarySelect,
+        },
       },
     });
 
@@ -279,6 +282,81 @@ export class ApplicationsService {
           data: { initialAnalysisUnitsUsed: { decrement: 1 } },
         }),
       ]);
+      throw new ServiceUnavailableException();
+    }
+
+    return toAnalysisRunSummary(analysisRun);
+  }
+
+  async launchHrPreparationForUser(userId: string, applicationCaseId: string): Promise<AnalysisRunSummary> {
+    const analysisRun = await this.runSerializableTransaction(async (transaction) => {
+      const applicationCase = await transaction.applicationCase.findFirst({
+        where: { id: applicationCaseId, userId },
+        select: { id: true, status: true },
+      });
+
+      if (applicationCase === null) {
+        throw new NotFoundException();
+      }
+
+      if (applicationCase.status !== 'HR_INVITED') {
+        throw new BadRequestException('HR preparation is available only after an HR invitation.');
+      }
+
+      const existingRun = await transaction.analysisRun.findFirst({
+        where: { applicationCaseId: applicationCase.id, workflowType: 'HR_PREPARATION' },
+        select: { id: true, status: true },
+      });
+
+      if (existingRun === null) {
+        return transaction.analysisRun.create({
+          data: {
+            applicationCaseId: applicationCase.id,
+            workflowType: 'HR_PREPARATION',
+            status: 'QUEUED',
+          },
+          select: analysisRunSummarySelect,
+        });
+      }
+
+      if (existingRun.status !== 'FAILED') {
+        throw new BadRequestException('HR preparation has already been started.');
+      }
+
+      return transaction.analysisRun.update({
+        where: { id: existingRun.id },
+        data: {
+          status: 'QUEUED',
+          currentStage: null,
+          errorCode: null,
+          errorMessageSanitized: null,
+          queueJobId: null,
+          startedAt: null,
+          finishedAt: null,
+        },
+        select: analysisRunSummarySelect,
+      });
+    });
+
+    try {
+      const queueJobId = await this.getJobsService().enqueueHrPreparation({
+        applicationCaseId: analysisRun.applicationCaseId,
+        analysisRunId: analysisRun.id,
+      });
+      await this.database.analysisRun.update({
+        where: { id: analysisRun.id },
+        data: { queueJobId },
+      });
+    } catch {
+      await this.database.analysisRun.update({
+        where: { id: analysisRun.id },
+        data: {
+          status: 'FAILED',
+          finishedAt: new Date(),
+          errorCode: 'QUEUE_UNAVAILABLE',
+          errorMessageSanitized: 'QUEUE_UNAVAILABLE',
+        },
+      });
       throw new ServiceUnavailableException();
     }
 
@@ -577,8 +655,17 @@ function toApplicationCaseAnalysisSummary(record: ApplicationCaseAnalysisRecord)
     currentStage: record.currentStage,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
-    analysisRun: record.analysisRuns[0] === undefined ? null : toAnalysisRunSummary(record.analysisRuns[0]),
+    analysisRun: toOptionalAnalysisRunSummary(record.analysisRuns, 'INITIAL_ANALYSIS'),
+    hrPreparationRun: toOptionalAnalysisRunSummary(record.analysisRuns, 'HR_PREPARATION'),
   };
+}
+
+function toOptionalAnalysisRunSummary(
+  runs: AnalysisRunRecord[],
+  workflowType: AnalysisRunRecord['workflowType'],
+): AnalysisRunSummary | null {
+  const run = runs.find((candidate) => candidate.workflowType === workflowType);
+  return run === undefined ? null : toAnalysisRunSummary(run);
 }
 
 function toInitialAnalysisResult(record: { id: string; applicationCaseId: string; finalMarkdown: string | null; editedFinalMarkdown: string | null; status: string }): InitialAnalysisResult {
