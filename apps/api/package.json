@@ -12,23 +12,23 @@
     "test": "npm run prisma:generate && node --import tsx --import ./test/setup-env.ts --test test/**/*.test.ts"
   },
   "dependencies": {
-    "@better-auth/prisma-adapter": "^1.6.23",
+    "@better-auth/prisma-adapter": "^1.6.29",
     "@job-ai-assistant/contracts": "*",
-    "@nestjs/common": "^11.0.0",
-    "@nestjs/core": "^11.0.0",
-    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/common": "^11.2.1",
+    "@nestjs/core": "^11.2.1",
+    "@nestjs/platform-express": "^11.2.1",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
-    "better-auth": "^1.6.23",
+    "better-auth": "^1.6.29",
     "pdfjs-dist": "^6.2.108",
-    "pg": "^8.22.0",
-    "pg-boss": "^12.26.4",
+    "pg": "^8.23.0",
+    "pg-boss": "^12.27.0",
     "reflect-metadata": "^0.2.2",
-    "resend": "^6.17.2",
+    "resend": "^6.20.0",
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
-    "@types/pg": "^8.20.0"
+    "@types/pg": "^8.21.0"
   }
 }
