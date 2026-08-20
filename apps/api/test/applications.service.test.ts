@@ -64,7 +64,7 @@ test('creates a vacancy draft with a confirmed sanitized resume snapshot', async
       vacancySourceType: 'FILE',
       vacancySourceFileName: 'vacancy.txt',
       vacancySourceText: 'Компания: Acme\nКонтакт: hr@example.com\nNode.js developer',
-      vacancySanitizedText: 'Компания: [EMPLOYER_1]\nКонтакт: [EMAIL_1]\nNode.js developer',
+        vacancySanitizedText: 'Компания: КОМПАНИЯ 1\nКонтакт: [EMAIL_1]\nNode.js developer',
       resumeSanitizedText: '[EMAIL_1] опыт',
     },
     select: {

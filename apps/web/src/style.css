@@ -865,8 +865,10 @@ h3 {
 .resume-markdown-preview pre { margin: 0; padding: var(--space-sm); overflow-x: auto; border: var(--rule-width) solid var(--color-rule); border-radius: var(--radius-input); background: var(--color-paper-raised); font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre-wrap; }
 .resume-markdown-preview a { color: var(--color-accent); }
 .resume-markdown-preview__table-wrap { overflow-x: auto; }
-.resume-markdown-preview table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-.resume-markdown-preview th, .resume-markdown-preview td { padding: var(--space-2xs); border: var(--rule-width) solid var(--color-rule-strong); text-align: left; vertical-align: top; }
+.resume-markdown-preview hr { width: 100%; margin: 0; border: 0; border-top: var(--rule-width) solid var(--color-rule-strong); }
+.resume-markdown-preview table { width: 100%; min-width: 38rem; border-collapse: collapse; font-size: var(--text-sm); }
+.resume-markdown-preview th, .resume-markdown-preview td { padding: var(--space-2xs); border: var(--rule-width) solid var(--color-rule-strong); text-align: left; vertical-align: top; overflow-wrap: break-word; word-break: normal; }
+.resume-markdown-preview th { white-space: nowrap; }
 
 .preview-actions {
   flex-wrap: wrap;

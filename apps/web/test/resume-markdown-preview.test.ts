@@ -36,6 +36,14 @@ test('recognizes adjacent headings without requiring blank lines', () => {
   ]);
 });
 
+test('renders strong emphasis and horizontal rules as Markdown structure', () => {
+  assert.deepEqual(parseResumeMarkdown('**Ð’Ñ‹Ð²Ð¾Ð´**\n\n---\n\nÐŸÑ€Ð¾Ð²ÐµÑ€Ð¸Ñ‚ÑŒ'), [
+    { type: 'paragraph', text: '**Ð’Ñ‹Ð²Ð¾Ð´**' },
+    { type: 'rule' },
+    { type: 'paragraph', text: 'ÐŸÑ€Ð¾Ð²ÐµÑ€Ð¸Ñ‚ÑŒ' },
+  ]);
+});
+
 test('keeps quotes, code blocks and links as safe source content', () => {
   assert.deepEqual(parseResumeMarkdown('> Проверить [источник](https://example.test)\n\n```\nconst value = 1;\n```'), [
     { type: 'quote', text: 'Проверить [источник](https://example.test)' },

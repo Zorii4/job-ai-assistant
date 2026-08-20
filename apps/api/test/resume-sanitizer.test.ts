@@ -26,14 +26,21 @@ test('does not replace a regular website that is not a personal profile', () => 
   assert.equal(result.sanitizedText, 'Проект: https://example.test/product');
 });
 
-test('replaces labelled employers and educational institutions, including a repeated employer mention', () => {
+test('replaces explicitly labelled employers and removes explicitly labelled education', () => {
   const result = sanitizeDirectIdentifiers(
     'Компания: Example Systems\nУниверситет: Example State University\nОпыт в Example Systems помог развить навыки.',
   );
 
   assert.equal(
     result.sanitizedText,
-    'Компания: [EMPLOYER_1]\nУниверситет: [EDUCATION_1]\nОпыт в [EMPLOYER_1] помог развить навыки.',
+    'Компания: КОМПАНИЯ 1\nОпыт в КОМПАНИЯ 1 помог развить навыки.',
+  );
+});
+
+test('replaces an explicitly labelled Telegram handle and personal profile URLs', () => {
+  assert.equal(
+    sanitizeDirectIdentifiers('Telegram: @candidate\nПрофиль: setka.ru/users/candidate\nРезюме: hh.ru/resume/123').sanitizedText,
+    'Telegram: [TELEGRAM_1]\nПрофиль: [PROFILE_URL_1]\nРезюме: [PROFILE_URL_2]',
   );
 });
 
@@ -67,7 +74,7 @@ test('preserves Markdown headings, lists, tables and section order while sanitiz
     [
       '# Опыт работы',
       '',
-      '- Компания: [EMPLOYER_1]',
+      '- Компания: КОМПАНИЯ 1',
       '- Email: [EMAIL_1]',
       '',
       '## Навыки',
@@ -79,25 +86,32 @@ test('preserves Markdown headings, lists, tables and section order while sanitiz
   );
 });
 
-test('replaces a labelled employer in a Markdown table and its repeated mention', () => {
+test('replaces a labelled employer in a Markdown table and repeated mentions', () => {
   const result = sanitizeDirectIdentifiers(
     '| Период | Компания | Роль |\n| --- | --- | --- |\n| 2023–2025 | Компания: Северный Контур | Engineer |\n\nОпыт в Северный Контур помог развить навыки.',
   );
 
   assert.equal(
     result.sanitizedText,
-    '| Период | Компания | Роль |\n| --- | --- | --- |\n| 2023–2025 | Компания: [EMPLOYER_1] | Engineer |\n\nОпыт в [EMPLOYER_1] помог развить навыки.',
+    '| Период | Компания | Роль |\n| --- | --- | --- |\n| 2023–2025 | Компания: КОМПАНИЯ 1 | Engineer |\n\nОпыт в КОМПАНИЯ 1 помог развить навыки.',
   );
 });
 
-test('keeps stable replacements for company legal forms, groups and repeated work-history mentions', () => {
+test('replaces labelled companies and their repeated work-history mentions', () => {
   const result = sanitizeDirectIdentifiers(
     'Работодатель: ООО Северный Контур\nОрганизация: Северный Контур Group\n\nОпыт работы: ООО Северный Контур — backend engineer.\nПовторное упоминание Северный Контур Group — mentor.',
   );
 
   assert.equal(
     result.sanitizedText,
-    'Работодатель: [EMPLOYER_1]\nОрганизация: [EMPLOYER_2]\n\nОпыт работы: [EMPLOYER_1] — backend engineer.\nПовторное упоминание [EMPLOYER_2] — mentor.',
+    'Работодатель: КОМПАНИЯ 1\nОрганизация: КОМПАНИЯ 2\n\nОпыт работы: КОМПАНИЯ 1 — backend engineer.\nПовторное упоминание КОМПАНИЯ 2 — mentor.',
+  );
+});
+
+test('normalizes a residence label while keeping the city', () => {
+  assert.equal(
+    sanitizeDirectIdentifiers('- Проживает: Санкт-Петербург\nМесто проживания — Казань').sanitizedText,
+    '- Город: Санкт-Петербург\nГород: Казань',
   );
 });
 
