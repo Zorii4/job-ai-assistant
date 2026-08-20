@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 
-import { ApiRequestError, getApiBaseUrl, getCurrentUser, signOut } from './api';
+import { ApiRequestError, deleteCurrentUser, getApiBaseUrl, getCurrentUser, signOut } from './api';
 import type { CurrentUser } from './api';
 import { AuthScreen, AuthShell, getInitialAuthView } from './features/auth/AuthScreen';
 import type { AuthView } from './features/auth/AuthScreen';
@@ -56,12 +56,19 @@ export function App() {
     }
   }
 
+  async function handleDeleteAccount() {
+    await deleteCurrentUser(getApiBaseUrl());
+    setUser(null);
+    setSessionState('anonymous');
+    setAuthView('sign-in');
+  }
+
   if (sessionState === 'loading') {
     return <AuthShell theme={visualTheme} onThemeChange={changeVisualTheme}><p className="auth-state" role="status">Проверяем сессию…</p></AuthShell>;
   }
 
   if (sessionState === 'authenticated' && user !== null && user.emailVerified) {
-    return <AuthenticatedApp user={user} logoutError={logoutError} onSignOut={handleSignOut} theme={visualTheme} onThemeChange={changeVisualTheme} />;
+    return <AuthenticatedApp user={user} logoutError={logoutError} onSignOut={handleSignOut} onDeleteAccount={handleDeleteAccount} theme={visualTheme} onThemeChange={changeVisualTheme} />;
   }
 
   return (

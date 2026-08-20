@@ -1,4 +1,6 @@
-import { Controller, Get } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get } from '@nestjs/common';
+
+import { DeleteAccountRequestSchema } from '@job-ai-assistant/contracts';
 
 import { CurrentSession, type AuthenticatedSession } from './authentication.guard.js';
 import { prisma } from '../database/prisma.service.js';
@@ -25,5 +27,16 @@ export class CurrentUserController {
         ...getUsagePolicy(user.planCode),
       },
     };
+  }
+
+  @Delete('me')
+  async deleteCurrentUser(@CurrentSession() session: AuthenticatedSession, @Body() body: unknown) {
+    const parsed = DeleteAccountRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException('Account deletion must be confirmed.');
+    }
+
+    await prisma.user.delete({ where: { id: session.user.id } });
+    return { deleted: true };
   }
 }

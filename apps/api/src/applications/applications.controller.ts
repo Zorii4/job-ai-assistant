@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 
 import {
@@ -9,6 +9,7 @@ import {
   ArtifactResponseSchema,
   InitialAnalysisResultResponseSchema,
   AnalysisRunResponseSchema,
+  UpdateApplicationCaseStageRequestSchema,
 } from '@job-ai-assistant/contracts';
 
 import { CurrentSession, type AuthenticatedSession } from '../auth/authentication.guard.js';
@@ -40,6 +41,20 @@ export class ApplicationsController {
       schemaVersion: API_SCHEMA_VERSION,
       applicationCases,
     });
+  }
+
+  @Patch(':applicationCaseId/stage')
+  async updateStage(@CurrentSession() session: AuthenticatedSession, @Param('applicationCaseId') applicationCaseId: string, @Body() body: unknown) {
+    const parsed = UpdateApplicationCaseStageRequestSchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException();
+    await this.applicationsService.updateStageForUser(session.user.id, parseApplicationCaseId(applicationCaseId), parsed.data.status);
+    return { schemaVersion: API_SCHEMA_VERSION };
+  }
+
+  @Delete(':applicationCaseId')
+  async deleteCompleted(@CurrentSession() session: AuthenticatedSession, @Param('applicationCaseId') applicationCaseId: string) {
+    await this.applicationsService.deleteCompletedForUser(session.user.id, parseApplicationCaseId(applicationCaseId));
+    return { schemaVersion: API_SCHEMA_VERSION };
   }
 
   @Post('file')

@@ -11,6 +11,12 @@ export const HealthResponseSchema = z
 
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 
+export const DeleteAccountRequestSchema = z.object({
+  confirmation: z.literal('УДАЛИТЬ АККАУНТ'),
+}).strict();
+
+export type DeleteAccountRequest = z.infer<typeof DeleteAccountRequestSchema>;
+
 export const ApiErrorCodeSchema = z.enum([
   'BAD_REQUEST',
   'UNAUTHORIZED',
@@ -101,13 +107,24 @@ export const ApplicationCaseStatusSchema = z.enum([
   'DRAFT',
   'ANALYZING',
   'ANALYSIS_READY',
+  'APPLIED',
+  'WAITING_RESPONSE',
+  'HR_INVITED',
+  'HR_PREPARATION_READY',
+  'HR_COMPLETED',
+  'REJECTED',
+  'OFFER',
+  'ARCHIVED',
   'FAILED',
 ]);
+
+export type ApplicationCaseStatus = z.infer<typeof ApplicationCaseStatusSchema>;
 
 export const CreateApplicationCaseFileRequestSchema = z
   .object({
     title: z.string().trim().min(1).max(180),
     resumeId: z.string().trim().min(1).max(128),
+    replacementApplicationCaseId: z.string().trim().min(1).max(128).optional(),
   })
   .strict();
 
@@ -158,12 +175,19 @@ export const ApplicationCaseAnalysisSummarySchema = z
     title: z.string().min(1),
     status: ApplicationCaseStatusSchema,
     currentStage: z.string().min(1),
+    createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
     analysisRun: AnalysisRunSummarySchema.nullable(),
   })
   .strict();
 
 export type ApplicationCaseAnalysisSummary = z.infer<typeof ApplicationCaseAnalysisSummarySchema>;
+
+export const UpdateApplicationCaseStageRequestSchema = z.object({
+  status: ApplicationCaseStatusSchema,
+}).strict();
+
+export type UpdateApplicationCaseStageRequest = z.infer<typeof UpdateApplicationCaseStageRequestSchema>;
 
 export const ApplicationCaseAnalysisListResponseSchema = z
   .object({

@@ -1,7 +1,7 @@
 ﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, NotFoundException } from '@nestjs/common';
 
 import { Prisma } from '../src/generated/prisma/client.js';
 import { ApplicationsService } from '../src/applications/applications.service.js';
@@ -36,6 +36,7 @@ test('creates a vacancy draft with a confirmed sanitized resume snapshot', async
       },
     },
     applicationCase: {
+      async count() { return 0; },
       async create(arguments_: unknown) {
         createArguments = arguments_;
         return createApplicationCaseRecord();
@@ -89,6 +90,7 @@ test('creates a file vacancy draft with the safe file name', async () => {
       },
     },
     applicationCase: {
+      async count() { return 0; },
       async create(arguments_: unknown) {
         createArguments = arguments_;
         return { ...createApplicationCaseRecord(), vacancySourceType: 'FILE' as const };
@@ -146,6 +148,7 @@ test('lists only the owners analysis snapshots without source texts', async () =
           title: 'Backend developer',
           status: 'ANALYZING' as const,
           currentStage: 'ANALYZING',
+          createdAt,
           updatedAt: createdAt,
           analysisRuns: [{
             id: 'run-1',
@@ -170,6 +173,7 @@ test('lists only the owners analysis snapshots without source texts', async () =
     title: 'Backend developer',
     status: 'ANALYZING',
     currentStage: 'ANALYZING',
+    createdAt: '2026-08-03T18:00:00.000Z',
     updatedAt: '2026-08-03T18:00:00.000Z',
     analysisRun: {
       id: 'run-1',
@@ -190,6 +194,7 @@ test('lists only the owners analysis snapshots without source texts', async () =
       title: true,
       status: true,
       currentStage: true,
+      createdAt: true,
       updatedAt: true,
       analysisRuns: {
         select: {
@@ -213,6 +218,7 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
   let runCreate: unknown;
   let queueJobUpdate: unknown;
   let usageReservation: unknown;
+  let stageEvent: unknown;
   const database = {
     async $transaction(callbackOrOperations: unknown) {
       if (typeof callbackOrOperations === 'function') {
@@ -258,6 +264,7 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
         return {};
       },
     },
+    stageEvent: { async create(arguments_: unknown) { stageEvent = arguments_; return {}; } },
   };
   const jobs = {
     async enqueueInitialAnalysis(payload: unknown) {
@@ -282,7 +289,10 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
   assert.deepEqual(queuePayload, { applicationCaseId: 'application-1', analysisRunId: 'run-1' });
   assert.deepEqual(applicationUpdate, {
     where: { id: 'application-1' },
-    data: { status: 'ANALYZING' },
+    data: { status: 'ANALYZING', currentStage: 'ANALYZING' },
+  });
+  assert.deepEqual(stageEvent, {
+    data: { applicationCaseId: 'application-1', fromStage: 'DRAFT', toStage: 'ANALYZING', source: 'SYSTEM' },
   });
   assert.deepEqual(usageReservation, {
     where: { id: 'user-1', initialAnalysisUnitsUsed: { lt: 10 } },
@@ -364,6 +374,7 @@ test('requeues the owners failed analysis without creating a second run or doubl
         return {};
       },
     },
+    stageEvent: { async create() { return {}; } },
   };
   const service = new ApplicationsService(database as never, {
     async enqueueInitialAnalysis(payload: unknown) {
@@ -508,6 +519,7 @@ test('allows a new analysis after either terminal run status releases active cap
         },
         async update() { return {}; },
       },
+      stageEvent: { async create() { return {}; } },
     };
     const service = new ApplicationsService(database as never, { async enqueueInitialAnalysis() { return 'job'; } } as never);
 
@@ -534,6 +546,7 @@ test('retries a serialization conflict before starting one initial analysis', as
       async create() { createdRuns += 1; return { id: 'run-1', applicationCaseId: 'application-1', workflowType: 'INITIAL_ANALYSIS' as const, status: 'QUEUED' as const, currentStage: null, errorCode: null, createdAt, updatedAt: createdAt }; },
       async update() { return {}; },
     },
+    stageEvent: { async create() { return {}; } },
   };
   const service = new ApplicationsService(database as never, { async enqueueInitialAnalysis() { return 'job-1'; } } as never);
 
@@ -568,6 +581,7 @@ test('does not start an analysis when all ten lifetime units are reserved', asyn
 
 test('releases a reserved unit when the analysis queue is unavailable', async () => {
   let releasedUsage: unknown;
+  let failedStageEvent: unknown;
   const database = {
     async $transaction(callbackOrOperations: unknown) {
       if (typeof callbackOrOperations === 'function') return callbackOrOperations(this);
@@ -592,6 +606,7 @@ test('releases a reserved unit when the analysis queue is unavailable', async ()
       },
       async update() { return {}; },
     },
+    stageEvent: { async create(arguments_: unknown) { failedStageEvent = arguments_; return {}; } },
   };
   const service = new ApplicationsService(database as never, {
     async enqueueInitialAnalysis() { throw new Error('queue unavailable'); },
@@ -602,6 +617,141 @@ test('releases a reserved unit when the analysis queue is unavailable', async ()
     where: { id: 'user-1' },
     data: { initialAnalysisUnitsUsed: { decrement: 1 } },
   });
+  assert.deepEqual(failedStageEvent, {
+    data: { applicationCaseId: 'application-1', fromStage: 'ANALYZING', toStage: 'FAILED', source: 'SYSTEM' },
+  });
+});
+
+test('does not create an eleventh vacancy for the same user', async () => {
+  let createCalled = false;
+  const database = {
+    resume: { async findFirst() { return { sanitizedText: '[EMAIL_1] опыт' }; } },
+    applicationCase: {
+      async count(arguments_: unknown) {
+        assert.deepEqual(arguments_, { where: { userId: 'user-1' } });
+        return 10;
+      },
+      async findFirst() { return null; },
+      async create() { createCalled = true; return createApplicationCaseRecord(); },
+    },
+  };
+  const service = new ApplicationsService(database as never);
+
+  await assert.rejects(
+    service.createFileDraftForUser('user-1', { title: 'Backend developer', resumeId: 'resume-1' }, { sourceFileName: 'vacancy.txt', sourceText: 'Node.js developer' }),
+    (error: unknown) => error instanceof HttpException && error.getStatus() === 429,
+  );
+  assert.equal(createCalled, false);
+});
+
+test('replaces only the oldest completed vacancy after explicit confirmation', async () => {
+  let deleted: unknown;
+  let created = false;
+  const database = {
+    resume: { async findFirst() { return { sanitizedText: '[EMAIL_1] опыт' }; } },
+    applicationCase: {
+      async count() { return 10; },
+      async findFirst() { return { id: 'oldest-completed' }; },
+      async deleteMany(arguments_: unknown) { deleted = arguments_; return { count: 1 }; },
+      async create() { created = true; return createApplicationCaseRecord(); },
+    },
+  };
+  const result = await new ApplicationsService(database as never).createFileDraftForUser(
+    'user-1', { title: 'Backend developer', resumeId: 'resume-1', replacementApplicationCaseId: 'oldest-completed' },
+    { sourceFileName: 'vacancy.txt', sourceText: 'Node.js developer' },
+  );
+  assert.equal(result.id, 'application-1');
+  assert.equal(created, true);
+  assert.deepEqual(deleted, { where: { id: 'oldest-completed', userId: 'user-1', status: { in: ['REJECTED', 'OFFER', 'ARCHIVED'] } } });
+});
+
+test('deletes only an owners completed or archived vacancy', async () => {
+  let deleteArguments: unknown;
+  const database = {
+    applicationCase: {
+      async deleteMany(arguments_: unknown) { deleteArguments = arguments_; return { count: 1 }; },
+    },
+  };
+  const service = new ApplicationsService(database as never);
+
+  await service.deleteCompletedForUser('user-1', 'application-1');
+
+  assert.deepEqual(deleteArguments, {
+    where: { id: 'application-1', userId: 'user-1', status: { in: ['REJECTED', 'OFFER', 'ARCHIVED'] } },
+  });
+});
+
+test('protects an owners active vacancy from deletion', async () => {
+  const database = {
+    applicationCase: {
+      async deleteMany() { return { count: 0 }; },
+      async findFirst() { return { id: 'application-1' }; },
+    },
+  };
+  const service = new ApplicationsService(database as never);
+
+  await assert.rejects(
+    service.deleteCompletedForUser('user-1', 'application-1'),
+    (error: unknown) => error instanceof ConflictException,
+  );
+});
+
+test('does not delete another users vacancy', async () => {
+  const database = {
+    applicationCase: {
+      async deleteMany() { return { count: 0 }; },
+      async findFirst() { return null; },
+    },
+  };
+  const service = new ApplicationsService(database as never);
+
+  await assert.rejects(
+    service.deleteCompletedForUser('user-2', 'application-1'),
+    (error: unknown) => error instanceof NotFoundException,
+  );
+});
+
+test('records an owner-scoped manual status correction as a user stage event', async () => {
+  let updateArguments: unknown;
+  let eventArguments: unknown;
+  const database = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
+    applicationCase: {
+      async findFirst(arguments_: unknown) {
+        assert.deepEqual(arguments_, {
+          where: { id: 'application-1', userId: 'user-1' },
+          select: { id: true, status: true },
+        });
+        return { id: 'application-1', status: 'WAITING_RESPONSE' as const };
+      },
+      async update(arguments_: unknown) { updateArguments = arguments_; return {}; },
+    },
+    stageEvent: { async create(arguments_: unknown) { eventArguments = arguments_; return {}; } },
+  };
+  const service = new ApplicationsService(database as never);
+
+  await service.updateStageForUser('user-1', 'application-1', 'HR_INVITED');
+
+  assert.deepEqual(updateArguments, {
+    where: { id: 'application-1' },
+    data: { status: 'HR_INVITED', currentStage: 'HR_INVITED' },
+  });
+  assert.deepEqual(eventArguments, {
+    data: { applicationCaseId: 'application-1', fromStage: 'WAITING_RESPONSE', toStage: 'HR_INVITED', source: 'USER' },
+  });
+});
+
+test('does not create a manual stage event for another users vacancy', async () => {
+  const database = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
+    applicationCase: { async findFirst() { return null; } },
+  };
+  const service = new ApplicationsService(database as never);
+
+  await assert.rejects(
+    service.updateStageForUser('user-2', 'application-1', 'HR_INVITED'),
+    (error: unknown) => error instanceof NotFoundException,
+  );
 });
 
 test('does not start analysis for another users vacancy', async () => {

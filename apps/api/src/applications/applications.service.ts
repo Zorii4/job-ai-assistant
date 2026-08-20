@@ -1,5 +1,8 @@
 import {
   BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
   Optional,
@@ -17,7 +20,7 @@ import type {
   UpdateInitialAnalysisResultRequest,
 } from '@job-ai-assistant/contracts';
 
-import { Prisma } from '../generated/prisma/client.js';
+import { ApplicationCaseStatus, Prisma } from '../generated/prisma/client.js';
 import { prisma } from '../database/prisma.service.js';
 import { JobsService } from '../jobs/jobs.service.js';
 import { sanitizeDirectIdentifiers } from '../resumes/resume-sanitizer.js';
@@ -26,7 +29,9 @@ import { AnalysisQuotaExceededException } from './analysis-quota-exceeded.except
 import { AnalysisCapacityExceededException } from './analysis-capacity-exceeded.exception.js';
 
 const maxActiveInitialAnalysisRuns = 2;
+const maxApplicationCasesPerUser = 10;
 const serializationRetryLimit = 3;
+const removableApplicationCaseStatuses: ApplicationCaseStatus[] = ['REJECTED', 'OFFER', 'ARCHIVED'];
 
 const applicationCaseSummarySelect = {
   id: true,
@@ -44,7 +49,7 @@ type ApplicationCaseRecord = {
   title: string;
   resumeId: string;
   vacancySourceType: 'FILE';
-  status: 'DRAFT' | 'ANALYZING' | 'ANALYSIS_READY' | 'FAILED';
+  status: 'DRAFT' | 'ANALYZING' | 'ANALYSIS_READY' | 'APPLIED' | 'WAITING_RESPONSE' | 'HR_INVITED' | 'HR_PREPARATION_READY' | 'HR_COMPLETED' | 'REJECTED' | 'OFFER' | 'ARCHIVED' | 'FAILED';
   currentStage: string;
   createdAt: Date;
   updatedAt: Date;
@@ -83,8 +88,9 @@ type AnalysisRunRecord = {
 type ApplicationCaseAnalysisRecord = {
   id: string;
   title: string;
-  status: 'DRAFT' | 'ANALYZING' | 'ANALYSIS_READY' | 'FAILED';
+  status: 'DRAFT' | 'ANALYZING' | 'ANALYSIS_READY' | 'APPLIED' | 'WAITING_RESPONSE' | 'HR_INVITED' | 'HR_PREPARATION_READY' | 'HR_COMPLETED' | 'REJECTED' | 'OFFER' | 'ARCHIVED' | 'FAILED';
   currentStage: string;
+  createdAt: Date;
   updatedAt: Date;
   analysisRuns: AnalysisRunRecord[];
 };
@@ -109,12 +115,34 @@ export class ApplicationsService {
         title: true,
         status: true,
         currentStage: true,
+        createdAt: true,
         updatedAt: true,
         analysisRuns: { select: analysisRunSummarySelect },
       },
     });
 
     return applicationCases.map(toApplicationCaseAnalysisSummary);
+  }
+
+  async updateStageForUser(userId: string, applicationCaseId: string, status: import('@job-ai-assistant/contracts').ApplicationCaseStatus) {
+    return this.database.$transaction(async (transaction) => {
+      const applicationCase = await transaction.applicationCase.findFirst({ where: { id: applicationCaseId, userId }, select: { id: true, status: true } });
+      if (applicationCase === null) throw new NotFoundException();
+      if (applicationCase.status === status) return;
+      await transaction.applicationCase.update({ where: { id: applicationCase.id }, data: { status, currentStage: status } });
+      await transaction.stageEvent.create({ data: { applicationCaseId: applicationCase.id, fromStage: applicationCase.status, toStage: status, source: 'USER' } });
+    });
+  }
+
+  async deleteCompletedForUser(userId: string, applicationCaseId: string): Promise<void> {
+    const result = await this.database.applicationCase.deleteMany({
+      where: { id: applicationCaseId, userId, status: { in: removableApplicationCaseStatuses } },
+    });
+    if (result.count === 1) return;
+
+    const applicationCase = await this.database.applicationCase.findFirst({ where: { id: applicationCaseId, userId }, select: { id: true } });
+    if (applicationCase === null) throw new NotFoundException();
+    throw new ConflictException('Active application cases cannot be deleted.');
   }
 
   async launchInitialAnalysisForUser(userId: string, applicationCaseId: string): Promise<AnalysisRunSummary> {
@@ -182,8 +210,9 @@ export class ApplicationsService {
 
       await transaction.applicationCase.update({
         where: { id: applicationCase.id },
-        data: { status: 'ANALYZING' },
+        data: { status: 'ANALYZING', currentStage: 'ANALYZING' },
       });
+      await transaction.stageEvent.create({ data: { applicationCaseId: applicationCase.id, fromStage: applicationCase.status, toStage: 'ANALYZING', source: 'SYSTEM' } });
 
       if (failedRun !== null) {
         return transaction.analysisRun.update({
@@ -235,7 +264,15 @@ export class ApplicationsService {
         }),
         this.database.applicationCase.update({
           where: { id: analysisRun.applicationCaseId },
-          data: { status: 'FAILED' },
+          data: { status: 'FAILED', currentStage: 'FAILED' },
+        }),
+        this.database.stageEvent.create({
+          data: {
+            applicationCaseId: analysisRun.applicationCaseId,
+            fromStage: 'ANALYZING',
+            toStage: 'FAILED',
+            source: 'SYSTEM',
+          },
         }),
         this.database.user.update({
           where: { id: userId },
@@ -441,6 +478,14 @@ export class ApplicationsService {
       throw new BadRequestException('The selected resume must be confirmed.');
     }
 
+    const applicationCaseCount = await this.database.applicationCase.count({ where: { userId } });
+    if (applicationCaseCount >= maxApplicationCasesPerUser) {
+      const candidate = await this.database.applicationCase.findFirst({ where: { userId, status: { in: removableApplicationCaseStatuses } }, orderBy: { createdAt: 'asc' }, select: { id: true } });
+      if (candidate === null || input.replacementApplicationCaseId !== candidate.id) throw new ApplicationCaseLimitReachedException();
+      const deleted = await this.database.applicationCase.deleteMany({ where: { id: candidate.id, userId, status: { in: removableApplicationCaseStatuses } } });
+      if (deleted.count !== 1) throw new ApplicationCaseLimitReachedException();
+    }
+
     const { sanitizedText: vacancySanitizedText } = sanitizeDirectIdentifiers(file.sourceText);
     const applicationCase = await this.database.applicationCase.create({
       data: {
@@ -484,6 +529,12 @@ export class ApplicationsService {
   }
 }
 
+class ApplicationCaseLimitReachedException extends HttpException {
+  constructor() {
+    super('Application case limit reached.', HttpStatus.TOO_MANY_REQUESTS);
+  }
+}
+
 function isTransactionSerializationFailure(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034';
 }
@@ -524,6 +575,7 @@ function toApplicationCaseAnalysisSummary(record: ApplicationCaseAnalysisRecord)
     title: record.title,
     status: record.status,
     currentStage: record.currentStage,
+    createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     analysisRun: record.analysisRuns[0] === undefined ? null : toAnalysisRunSummary(record.analysisRuns[0]),
   };

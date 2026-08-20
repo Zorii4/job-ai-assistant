@@ -70,7 +70,21 @@ enum ApplicationCaseStatus {
   DRAFT
   ANALYZING
   ANALYSIS_READY
+  APPLIED
+  WAITING_RESPONSE
+  HR_INVITED
+  HR_PREPARATION_READY
+  HR_COMPLETED
+  REJECTED
+  OFFER
+  ARCHIVED
   FAILED
+}
+
+enum StageEventSource {
+  USER
+  SYSTEM
+  AI
 }
 
 model ApplicationCase {
@@ -91,10 +105,24 @@ model ApplicationCase {
   resume               Resume                @relation(fields: [resumeId], references: [id], onDelete: Restrict)
   analysisRuns         AnalysisRun[]
   artifacts            Artifact[]
+  stageEvents          StageEvent[]
 
   @@index([userId, updatedAt])
   @@index([resumeId])
   @@map("application_case")
+}
+
+model StageEvent {
+  id                String           @id @default(cuid())
+  applicationCaseId String
+  fromStage         ApplicationCaseStatus
+  toStage           ApplicationCaseStatus
+  source            StageEventSource
+  createdAt         DateTime         @default(now())
+  applicationCase   ApplicationCase  @relation(fields: [applicationCaseId], references: [id], onDelete: Cascade)
+
+  @@index([applicationCaseId, createdAt])
+  @@map("stage_event")
 }
 
 enum AnalysisWorkflowType {
