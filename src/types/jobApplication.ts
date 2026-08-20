@@ -45,6 +45,17 @@ export type LlmErrorCode =
   | "LLM_RESPONSE_INVALID"
   | "LLM_UNKNOWN_ERROR";
 
+export class WebAnalysisWorkflowError extends Error {
+  readonly name = "WebAnalysisWorkflowError";
+
+  constructor(
+    readonly llmErrorCode: LlmErrorCode,
+    readonly stepName: JobApplicationAgentName | undefined
+  ) {
+    super(llmErrorCode);
+  }
+}
+
 export type JobApplicationAgentName =
   | "analyst"
   | "producer.v1"

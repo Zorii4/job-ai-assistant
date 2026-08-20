@@ -128,8 +128,23 @@ export class ApplicationsService {
         throw new NotFoundException();
       }
 
-      if (applicationCase.status !== 'DRAFT') {
+      if (applicationCase.status !== 'DRAFT' && applicationCase.status !== 'FAILED') {
         throw new BadRequestException('Initial analysis has already been started.');
+      }
+
+      const failedRun = applicationCase.status === 'FAILED'
+        ? await transaction.analysisRun.findFirst({
+          where: {
+            applicationCaseId: applicationCase.id,
+            workflowType: 'INITIAL_ANALYSIS',
+            status: 'FAILED',
+          },
+          select: { id: true },
+        })
+        : null;
+
+      if (applicationCase.status === 'FAILED' && failedRun === null) {
+        throw new BadRequestException('Failed initial analysis run is unavailable.');
       }
 
       const user = await transaction.user.findUnique({
@@ -169,6 +184,24 @@ export class ApplicationsService {
         where: { id: applicationCase.id },
         data: { status: 'ANALYZING' },
       });
+
+      if (failedRun !== null) {
+        return transaction.analysisRun.update({
+          where: { id: failedRun.id },
+          data: {
+            status: 'QUEUED',
+            currentStage: null,
+            errorCode: null,
+            errorMessageSanitized: null,
+            queueJobId: null,
+            startedAt: null,
+            finishedAt: null,
+            finalMarkdown: null,
+            editedFinalMarkdown: null,
+          },
+          select: analysisRunSummarySelect,
+        });
+      }
 
       return transaction.analysisRun.create({
         data: {

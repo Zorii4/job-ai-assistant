@@ -77,15 +77,19 @@ agent-модулями напрямую. При запуске workflow полу
 - structured contracts Analyst и Critic отправляются как strict JSON Schema только
   на явно настроенный совместимый маршрут; после ответа они всё равно проходят
   runtime-валидацию Zod, а обрезанный ответ не считается корректным;
+- Analyst использует primary-модель из `LLM_MODEL`, одну recovery-попытку при
+  невалидном structured response и настроенный `LLM_ANALYST_FALLBACK_MODEL` при
+  timeout, network error или окончательно невалидном ответе primary-маршрута;
 - Critic использует отдельный профиль: `deepseek-v4-flash` с 180-секундным budget и
   `gpt-oss-20b` как один технический fallback при timeout или output limit; оба маршрута
   проверены на его strict JSON Schema и не публикуют частичный пакет;
 - модель возвращает атомарные findings Critic, а сервер детерминированно выводит из их
   severity поля `decision` и `reviewStatus`; это исключает противоречивый итог при
   сохранении runtime-валидации всех findings;
-- Analyst и Producer используют 120-секундный лимит шага и не более одной
-  автоматической технической повторной попытки; это не даёт одному provider timeout
-  исчерпать весь общий budget workflow.
+- Analyst и Producer используют 120-секундный лимит шага. Producer сохраняет не более
+  одной автоматической технической повторной попытки, а Analyst после технического
+  сбоя primary переключается на отдельную совместимую fallback-модель; общий timeout
+  workflow остаётся верхней границей.
 - prompt text не передаётся frontend и не включается в диагностические ошибки.
 
 ## Текущие данные и доверительные границы
@@ -148,7 +152,9 @@ PDF/MD/TXT после проверки владения подтверждённ
 initial-analysis run и ставит в PgBoss только ID вакансии и run. Один worker-процесс
 обрабатывает не более двух initial-analysis jobs одновременно. Worker atomically
 claim'ит run, загружает snapshots из PostgreSQL, сохраняет этапы и finalMarkdown,
-а при retry или ошибке записывает только технический code без raw error. Защищённый
+а при retry или ошибке записывает только технический code без raw error. Для terminal
+LLM-сбоев code различает этап и безопасную категорию (`TIMEOUT`, `NETWORK_ERROR` или
+`RESPONSE_INVALID`). Защищённый
 polling endpoint возвращает владельцу статусы, этапы и технический code. Отдельный
 endpoint результата отдаёт `finalMarkdown` только после успешного run и только его
 владельцу. Web делает polling и безопасно отображает read-only Markdown-блоки без HTML
@@ -161,6 +167,10 @@ initial analysis API атомарно резервирует одну из де�
 Сбой внутри уже начатого LLM workflow завершает конкретный run безопасным `FAILED` и не
 перезапускает весь pipeline: внутренние bounded retry принадлежат шагу. Повторная доставка
 очереди сохраняется для ошибок до claim run или при persistence после завершённого workflow.
+Владелец может вручную повторно поставить failed initial analysis через тот же защищённый
+API: существующий `AnalysisRun` очищается до `QUEUED`, поэтому не создаются второй run и
+дубликаты результата. Возвращённая при предыдущем техническом сбое единица квоты
+резервируется снова и расходуется только при успешном завершении.
 Эти компоненты не должны обходить границы privacy, ownership или initial workflow.
 
 ## Архитектурные инварианты

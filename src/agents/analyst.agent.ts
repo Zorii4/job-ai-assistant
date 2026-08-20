@@ -1,5 +1,8 @@
 import { callLLMJson } from "../llm/llmClient.js";
-import { retryStructuredResponse } from "../llm/retryStructuredResponse.js";
+import {
+  recoverStructuredResponseOnce,
+  retryTechnicalLlmFailureWithFallback
+} from "../llm/retryStructuredResponse.js";
 import { createLlmAttemptMetrics } from "../llm/retryTransientRequest.js";
 import { analystResultSchema, type AnalystResult } from "../contracts/analyst.contract.js";
 import type { AgentExecutionOptions, AgentExecutionResult, JobApplicationDocuments } from "../types/jobApplication.js";
@@ -23,22 +26,36 @@ ${documents.resumeText}
 
 Vacancy:
 ${documents.vacancyText}
-`.trim();
+  `.trim();
   const llmMetrics = createLlmAttemptMetrics();
-  const callAnalyst = (prompt: string) =>
+  const callAnalyst = (prompt: string, model?: string) =>
     callLLMJson(prompt, userPrompt, analystResultSchema, "AnalystResult", {
       maxOutputTokens: options.maxOutputTokens,
       timeoutMs: options.timeoutMs,
+      model,
+      transientRetryMaxAttempts: 1,
       metrics: llmMetrics
     });
-  const response = await retryStructuredResponse(
-    () => callAnalyst(systemPrompt),
-    () => callAnalyst(`${systemPrompt}\n\n${analystRecoveryInstruction}`),
-    ({ phase, errorCode }) => {
-      llmMetrics.retryErrorCodes.push(errorCode);
-      console.warn(`[analyst] technical ${phase} after ${errorCode}`);
-    }
-  );
+  const executeRoute = (model?: string) =>
+    recoverStructuredResponseOnce(
+      () => callAnalyst(systemPrompt, model),
+      () => callAnalyst(`${systemPrompt}\n\n${analystRecoveryInstruction}`, model),
+      ({ errorCode }) => {
+        llmMetrics.retryErrorCodes.push(errorCode);
+        console.warn(`[analyst] technical recovery after ${errorCode}`);
+      }
+    );
+  const fallbackModel = getAnalystFallbackModel();
+  const response = fallbackModel === undefined
+    ? await executeRoute()
+    : await retryTechnicalLlmFailureWithFallback(
+        () => executeRoute(),
+        () => executeRoute(fallbackModel),
+        (errorCode) => {
+          llmMetrics.retryErrorCodes.push(errorCode);
+          console.warn(`[analyst] switching to configured fallback model after ${errorCode}`);
+        }
+      );
   const outputText = JSON.stringify(response.data, null, 2);
 
   return {
@@ -49,4 +66,15 @@ ${documents.vacancyText}
     attemptCount: llmMetrics.attemptCount,
     retryErrorCodes: llmMetrics.retryErrorCodes
   };
+}
+
+function getAnalystFallbackModel(): string | undefined {
+  const fallbackModel = process.env.LLM_ANALYST_FALLBACK_MODEL?.trim();
+  const primaryModel = process.env.LLM_MODEL?.trim();
+
+  if (!fallbackModel || fallbackModel === primaryModel) {
+    return undefined;
+  }
+
+  return fallbackModel;
 }

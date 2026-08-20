@@ -1,4 +1,5 @@
 import { LlmTruncatedResponseError, StructuredResponseValidationError } from "./llmClient.js";
+import { classifyLlmError } from "./retryTransientRequest.js";
 
 export type StructuredResponseRetryEvent = {
   phase: "retry" | "recovery";
@@ -31,6 +32,46 @@ export async function retryStructuredResponse<T>(
   }
 
   return recover();
+}
+
+export async function recoverStructuredResponseOnce<T>(
+  execute: () => Promise<T>,
+  recover: () => Promise<T>,
+  onRecovery?: (event: StructuredResponseRetryEvent) => void
+): Promise<T> {
+  try {
+    return await execute();
+  } catch (error) {
+    if (!isInvalidStructuredResponse(error)) {
+      throw error;
+    }
+
+    onRecovery?.({ phase: "recovery", errorCode: "LLM_RESPONSE_INVALID" });
+    return recover();
+  }
+}
+
+export async function retryTechnicalLlmFailureWithFallback<T>(
+  execute: () => Promise<T>,
+  fallback: () => Promise<T>,
+  onFallback?: (errorCode: "LLM_TIMEOUT" | "LLM_NETWORK_ERROR" | "LLM_RESPONSE_INVALID") => void
+): Promise<T> {
+  try {
+    return await execute();
+  } catch (error) {
+    const errorCode = classifyLlmError(error);
+
+    if (
+      errorCode !== "LLM_TIMEOUT" &&
+      errorCode !== "LLM_NETWORK_ERROR" &&
+      errorCode !== "LLM_RESPONSE_INVALID"
+    ) {
+      throw error;
+    }
+
+    onFallback?.(errorCode);
+    return fallback();
+  }
 }
 
 export async function retryCriticBudgetFailureWithFallback<T>(

@@ -12,6 +12,7 @@ import type {
   JobApplicationAgentName,
   JobApplicationStep
 } from "../types/jobApplication.js";
+import { WebAnalysisWorkflowError } from "../types/jobApplication.js";
 import type { AnalysisRunPersistence } from "./ports/analysisRunPersistence.js";
 
 export type AnalyzeJobApplicationDependencies = {
@@ -120,6 +121,10 @@ async function runAnalyzeJobApplication(
 
     console.error(`[app] failed ${currentStepName ?? "analysis"}: ${errorCode}`);
     await persistence.saveMeta(runId, errorMeta, steps);
+
+    if (input.source === "web") {
+      throw new WebAnalysisWorkflowError(errorCode, currentStepName);
+    }
 
     throw error;
   }

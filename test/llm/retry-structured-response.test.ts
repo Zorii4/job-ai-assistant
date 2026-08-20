@@ -5,8 +5,10 @@ import {
   StructuredResponseValidationError
 } from "../../src/llm/llmClient.js";
 import {
+  recoverStructuredResponseOnce,
   retryStructuredResponse,
-  retryCriticBudgetFailureWithFallback
+  retryCriticBudgetFailureWithFallback,
+  retryTechnicalLlmFailureWithFallback
 } from "../../src/llm/retryStructuredResponse.js";
 
 test("retries one invalid structured LLM response", async () => {
@@ -83,6 +85,67 @@ test("retries a validation error without exposing a model response", async () =>
 
   assert.equal(result, "valid");
   assert.equal(calls, 2);
+});
+
+test("uses one structured recovery before returning control to a model fallback", async () => {
+  let primaryCalls = 0;
+  let recoveryCalls = 0;
+
+  await assert.rejects(
+    recoverStructuredResponseOnce(
+      async () => {
+        primaryCalls += 1;
+        throw new StructuredResponseValidationError("AnalystResult", ["root: invalid"]);
+      },
+      async () => {
+        recoveryCalls += 1;
+        throw new StructuredResponseValidationError("AnalystResult", ["root: still invalid"]);
+      }
+    ),
+    /invalid AnalystResult/
+  );
+
+  assert.equal(primaryCalls, 1);
+  assert.equal(recoveryCalls, 1);
+});
+
+test("switches a timed out Analyst route to one configured fallback route", async () => {
+  let fallbackCalls = 0;
+  const fallbackCodes: string[] = [];
+
+  const result = await retryTechnicalLlmFailureWithFallback(
+    async () => {
+      throw new Error("LLM step timed out after 120000ms.");
+    },
+    async () => {
+      fallbackCalls += 1;
+      return "fallback-valid";
+    },
+    (errorCode) => fallbackCodes.push(errorCode)
+  );
+
+  assert.equal(result, "fallback-valid");
+  assert.equal(fallbackCalls, 1);
+  assert.deepEqual(fallbackCodes, ["LLM_TIMEOUT"]);
+});
+
+test("does not hide a configuration failure behind the Analyst fallback", async () => {
+  let fallbackCalls = 0;
+
+  await assert.rejects(
+    retryTechnicalLlmFailureWithFallback(
+      async () => {
+        throw new Error("LLM_API_KEY is missing.");
+      },
+      async () => {
+        fallbackCalls += 1;
+        return "fallback-valid";
+      }
+    ),
+    /LLM_API_KEY/
+  );
+
+  assert.equal(fallbackCalls, 0);
 });
 
 test("switches to the fallback when the primary response is truncated", async () => {
