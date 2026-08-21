@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { extractInitialArtifacts, processInitialAnalysisJob } from '../src/initial-analysis.worker.js';
+import { recoverInterruptedInitialAnalysisRuns } from '../src/main.js';
 
 test('extracts the complete known material set from final markdown', () => {
   const markdown = [
@@ -176,4 +177,59 @@ test('allows PgBoss to retry a persistence error after a completed workflow', as
   );
 
   assert.equal(queries.some((query) => query.text.includes("status = 'QUEUED'")), true);
+});
+
+test('does not execute the workflow twice when the queue delivers the same completed job again', async () => {
+  let claimCount = 0;
+  let workflowCalls = 0;
+  const artifactInserts: Array<readonly unknown[]> = [];
+  const database = {
+    async query(text: string, values: readonly unknown[]) {
+      if (text.startsWith('UPDATE analysis_run AS run')) {
+        claimCount += 1;
+        return {
+          rows: claimCount === 1
+            ? [{ userId: 'user-1', resumeSanitizedText: 'Resume', vacancySanitizedText: 'Vacancy' }]
+            : [],
+        };
+      }
+
+      if (text.startsWith('INSERT INTO artifact')) artifactInserts.push(values);
+      return { rows: [] };
+    },
+  };
+  const dependencies = {
+    database,
+    retryRemaining: false,
+    async runInitialAnalysis() {
+      workflowCalls += 1;
+      return {
+        finalMarkdown: [
+          '### Блоки для резюме', '', 'Рекомендации', '', '### Готовые тексты', '',
+          '#### Сопроводительное письмо', '', 'Письмо', '', '#### Сообщение рекрутеру', '',
+          'Сообщение', '', '#### Follow-up', '', 'Напоминание',
+        ].join('\n'),
+      };
+    },
+  };
+
+  await processInitialAnalysisJob({ applicationCaseId: 'application-1', analysisRunId: 'run-1' }, dependencies);
+  await processInitialAnalysisJob({ applicationCaseId: 'application-1', analysisRunId: 'run-1' }, dependencies);
+
+  assert.equal(workflowCalls, 1);
+  assert.equal(artifactInserts.length, 4);
+});
+
+test('requeues interrupted initial-analysis runs when the single worker restarts', async () => {
+  const queries: Array<{ text: string; values: readonly unknown[] | undefined }> = [];
+  const recovered = await recoverInterruptedInitialAnalysisRuns({
+    async query(text: string, values?: readonly unknown[]) {
+      queries.push({ text, values });
+      return { rows: [{ applicationCaseId: 'application-1', analysisRunId: 'run-1' }] };
+    },
+  } as never);
+
+  assert.deepEqual(recovered, [{ applicationCaseId: 'application-1', analysisRunId: 'run-1' }]);
+  assert.match(queries[0]?.text ?? '', /status = 'RUNNING'/);
+  assert.match(queries[0]?.text ?? '', /status = 'QUEUED'/);
 });

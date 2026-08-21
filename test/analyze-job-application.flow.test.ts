@@ -27,7 +27,7 @@ before(() => {
 
 after(async () => {
   process.chdir(originalWorkingDirectory);
-  await rm(testWorkingDirectory, { recursive: true, force: true });
+  await rm(testWorkingDirectory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 });
 
 test("Mock fast flow blocks final output when critical findings remain", async () => {
@@ -75,6 +75,96 @@ test("web flow exposes only a safe structured workflow failure", async () => {
       return true;
     }
   );
+});
+
+test("a compatible checkpoint retries Critic without rerunning Analyst or Producer", async () => {
+  process.env.ANALYSIS_MODE = "fast";
+  process.env.MAX_REVISION_CYCLES = "0";
+  const checkpoints = new Map<string, { fingerprint: string; checkpoint: unknown }>();
+  const firstSteps: string[] = [];
+  const secondSteps: string[] = [];
+  const persistenceFor = (steps: string[]): AnalysisRunPersistence => ({
+    async initializeRun() {},
+    async saveStepOutput(_runId, step) { steps.push(step.agentName); },
+    async saveFinal() {},
+    async saveMeta() {},
+    async cleanupOldRuns() {},
+  });
+  const checkpointStore = {
+    async load(runId: string) { return checkpoints.get(runId) ?? null; },
+    async save(runId: string, fingerprint: string, checkpoint: unknown) {
+      checkpoints.set(runId, { fingerprint, checkpoint });
+    },
+    async clear(runId: string) { checkpoints.delete(runId); },
+  };
+  const input = {
+    resumeText: "Candidate has product delivery experience.",
+    vacancyText: "The role requires product delivery and collaboration.",
+    source: "web" as const,
+  };
+
+  await assert.rejects(
+    createAnalyzeJobApplication({
+      persistence: persistenceFor(firstSteps),
+      createRunId: () => "checkpoint-run",
+      checkpointStore,
+    })(input),
+  );
+  const saved = checkpoints.get("checkpoint-run");
+  assert.ok(saved !== undefined);
+  const checkpointWithoutCritic = { ...(saved.checkpoint as Record<string, unknown>) };
+  delete checkpointWithoutCritic.latestCriticResult;
+  checkpoints.set("checkpoint-run", { ...saved, checkpoint: checkpointWithoutCritic });
+  await assert.rejects(
+    createAnalyzeJobApplication({
+      persistence: persistenceFor(secondSteps),
+      createRunId: () => "checkpoint-run",
+      checkpointStore,
+    })(input),
+  );
+
+  assert.deepEqual(firstSteps, ["analyst", "producer.v1", "critic.v1"]);
+  assert.deepEqual(secondSteps, ["critic.v1"]);
+});
+
+test("a checkpoint is discarded when the model configuration changes", async () => {
+  process.env.ANALYSIS_MODE = "fast";
+  process.env.MAX_REVISION_CYCLES = "0";
+  const previousModel = process.env.LLM_MODEL;
+  const checkpoints = new Map<string, { fingerprint: string; checkpoint: unknown }>();
+  const firstSteps: string[] = [];
+  const secondSteps: string[] = [];
+  const persistenceFor = (steps: string[]): AnalysisRunPersistence => ({
+    async initializeRun() {},
+    async saveStepOutput(_runId, step) { steps.push(step.agentName); },
+    async saveFinal() {},
+    async saveMeta() {},
+    async cleanupOldRuns() {},
+  });
+  const checkpointStore = {
+    async load(runId: string) { return checkpoints.get(runId) ?? null; },
+    async save(runId: string, fingerprint: string, checkpoint: unknown) {
+      checkpoints.set(runId, { fingerprint, checkpoint });
+    },
+    async clear(runId: string) { checkpoints.delete(runId); },
+  };
+  const input = {
+    resumeText: "Candidate has product delivery experience.",
+    vacancyText: "The role requires product delivery and collaboration.",
+    source: "web" as const,
+  };
+
+  try {
+    process.env.LLM_MODEL = "model-a";
+    await assert.rejects(createAnalyzeJobApplication({ persistence: persistenceFor(firstSteps), createRunId: () => "model-run", checkpointStore })(input));
+    process.env.LLM_MODEL = "model-b";
+    await assert.rejects(createAnalyzeJobApplication({ persistence: persistenceFor(secondSteps), createRunId: () => "model-run", checkpointStore })(input));
+  } finally {
+    if (previousModel === undefined) delete process.env.LLM_MODEL;
+    else process.env.LLM_MODEL = previousModel;
+  }
+
+  assert.deepEqual(secondSteps, ["analyst", "producer.v1", "critic.v1"]);
 });
 
 test("Mock revision flow stops after the third producer version", async () => {

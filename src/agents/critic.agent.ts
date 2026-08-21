@@ -21,6 +21,15 @@ The previous response did not pass the Critic findings schema. Re-run the same a
 Return only one complete valid CriticFindings JSON object for schemaVersion 3. Include issues, claimAudit, and summary; do not include decision or reviewStatus because the application derives them from the findings. The claimAudit field is mandatory and must contain at least one complete entry. Preserve the distinction between classification and severity; do not omit required fields.
 `.trim();
 
+const criticOutputContractInstruction = `
+# Required Critic output protocol
+
+Return only one complete CriticFindings JSON object for schemaVersion 3.
+Do not return decision or reviewStatus: the application derives both deterministically from the findings.
+Audit 3 to 6 representative, high-risk claims across the complete producer package. Always include any claim that could materially misrepresent the candidate, even when it is not among the representative claims.
+Keep every field concise and do not repeat evidence.
+`.trim();
+
 export async function criticAgent(
   documents: JobApplicationDocuments,
   analystResult: AnalystResult,
@@ -29,6 +38,7 @@ export async function criticAgent(
   options: AgentExecutionOptions,
   systemPrompt: string
 ): Promise<AgentExecutionResult<CriticResult>> {
+  const effectiveCriticInstructions = `${systemPrompt}\n\n${criticOutputContractInstruction}`;
   const userPrompt = createCriticPrompt(documents, analystResult, producerOutput, producerVersion);
   const fallbackUserPrompt = createCriticPrompt(
     documents,
@@ -65,8 +75,8 @@ export async function criticAgent(
     timeoutMs = getCriticTimeoutMs()
   ) =>
     retryStructuredResponse(
-      () => callCritic(systemPrompt, model, prompt, maxOutputTokens, timeoutMs),
-      () => callCritic(`${systemPrompt}\n\n${criticRecoveryInstruction}`, model, prompt, maxOutputTokens, timeoutMs),
+      () => callCritic(effectiveCriticInstructions, model, prompt, maxOutputTokens, timeoutMs),
+      () => callCritic(`${effectiveCriticInstructions}\n\n${criticRecoveryInstruction}`, model, prompt, maxOutputTokens, timeoutMs),
       ({ phase, errorCode }) => {
         llmMetrics.retryErrorCodes.push(errorCode);
         console.warn(`[critic] technical ${phase} after ${errorCode}`);
