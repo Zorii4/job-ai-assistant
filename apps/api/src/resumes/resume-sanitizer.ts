@@ -7,6 +7,7 @@ const employerLinePattern = /^(\s*(?:[-*+]\s*)?(?:Компания|Работо�
 const employerTableCellPattern = /(^|\|\s*)((?:Компания|Работодатель|Организация|Место работы)\s*[:—-]\s*)([^|\n]+?)(?=\s*\||\s*$)/gim;
 const educationLinePattern = /^\s*(?:[-*+]\s*)?(?:Образование|Университет|ВУЗ|Учебное заведение)\s*[:—-]\s*\S(?:.*\S)?[ \t]*\r?\n?/gim;
 const residenceLinePattern = /^(\s*(?:[-*+]\s*)?)(?:Проживает|Место проживания)\s*[:—-]\s*(\S(?:.*\S)?)[ \t]*$/gim;
+const hrSignaturePattern = /(?:\r?\n|^)\s*(?:с\s+уважением|с\s+наилучшими\s+пожеланиями|всего\s+доброго|best\s+regards|kind\s+regards|regards)[,!.]?\s*(?:\r?\n[\s\S]*)?$/i;
 
 export type DirectIdentifierSanitization = {
   sanitizedText: string;
@@ -52,6 +53,11 @@ export function sanitizeDirectIdentifiers(sourceText: string): DirectIdentifierS
       knownEmployers,
     ),
   };
+}
+
+export function sanitizePostInterviewHrMessage(sourceText: string): DirectIdentifierSanitization {
+  const withoutSignature = sourceText.replace(hrSignaturePattern, '').trim();
+  return sanitizeDirectIdentifiers(withoutSignature);
 }
 
 function replaceKnownEmployerMentions(sourceText: string, knownEmployers: Map<string, string>): string {

@@ -352,6 +352,10 @@ function createMockResponse(systemPrompt: string, userPrompt: string): string {
     return createMockHrPreparationResponse();
   }
 
+  if (agentName === "postInterviewAgent") {
+    return createMockPostInterviewResponse();
+  }
+
   return `
 # Mock response: ${agentName}
 
@@ -375,6 +379,14 @@ function createMockHrPreparationResponse(): string {
       question: `Как вы объясните свой релевантный опыт для этой роли ${index + 1}?`,
       answer: "Я опираюсь на подтверждённый опыт из резюме и готов спокойно пояснить, какие задачи выполнял и как этот опыт соотносится с ролью.",
     })),
+  });
+}
+
+function createMockPostInterviewResponse(): string {
+  return JSON.stringify({
+    schemaVersion: "1",
+    analysisMarkdown: "## Разбор сообщения HR\n\nВ сообщении нет прямого подтверждения следующего этапа. Уточните дальнейшие шаги у HR.",
+    hrClosingMessage: "Спасибо за обратную связь. Буду признателен за информацию о дальнейших шагах.",
   });
 }
 
@@ -489,6 +501,10 @@ function detectAgentName(systemPrompt: string): string {
 
   if (systemPrompt.includes("hrPreparationAgent") || systemPrompt.includes("HR Preparation Generator")) {
     return "hrPreparationAgent";
+  }
+
+  if (systemPrompt.includes("postInterviewAgent") || systemPrompt.includes("Post-interview Generator")) {
+    return "postInterviewAgent";
   }
 
   if (

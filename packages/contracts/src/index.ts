@@ -153,7 +153,7 @@ export const ApplicationCaseResponseSchema = z
   .strict();
 
 export const AnalysisRunStatusSchema = z.enum(['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED']);
-export const AnalysisWorkflowTypeSchema = z.enum(['INITIAL_ANALYSIS', 'HR_PREPARATION']);
+export const AnalysisWorkflowTypeSchema = z.enum(['INITIAL_ANALYSIS', 'HR_PREPARATION', 'POST_INTERVIEW']);
 
 export const AnalysisRunSummarySchema = z
   .object({
@@ -180,6 +180,7 @@ export const ApplicationCaseAnalysisSummarySchema = z
     updatedAt: z.string().datetime(),
     analysisRun: AnalysisRunSummarySchema.nullable(),
     hrPreparationRun: AnalysisRunSummarySchema.nullable(),
+    postInterviewRun: AnalysisRunSummarySchema.nullable(),
   })
   .strict();
 
@@ -235,6 +236,8 @@ export const ArtifactTypeSchema = z.enum([
   'RECRUITER_MESSAGE',
   'FOLLOW_UP',
   'HR_SCREENING_PREPARATION',
+  'POST_INTERVIEW_REVIEW',
+  'HR_CLOSING_MESSAGE',
 ]);
 
 export const ArtifactSummarySchema = z.object({
@@ -263,6 +266,22 @@ export const HRPreparationResultSchema = z
   .strict();
 
 export type HRPreparationResult = z.infer<typeof HRPreparationResultSchema>;
+
+export const PostInterviewMessageMaxLength = 8_000;
+
+export const CreatePostInterviewRequestSchema = z.object({
+  hrMessage: z.string().trim().min(1).max(PostInterviewMessageMaxLength),
+}).strict();
+
+export type CreatePostInterviewRequest = z.infer<typeof CreatePostInterviewRequestSchema>;
+
+export const PostInterviewResultSchema = z.object({
+  schemaVersion: z.literal('1'),
+  analysisMarkdown: z.string().trim().min(1),
+  hrClosingMessage: z.string().trim().min(1),
+}).strict();
+
+export type PostInterviewResult = z.infer<typeof PostInterviewResultSchema>;
 
 export const UpdateArtifactRequestSchema = z.object({
   editedContent: z.string().trim().min(1).max(50_000),
@@ -297,3 +316,10 @@ export const HRPreparationJobPayloadSchema = z
   .strict();
 
 export type HRPreparationJobPayload = z.infer<typeof HRPreparationJobPayloadSchema>;
+
+export const PostInterviewJobPayloadSchema = z.object({
+  applicationCaseId: z.string().min(1).max(128),
+  analysisRunId: z.string().min(1).max(128),
+}).strict();
+
+export type PostInterviewJobPayload = z.infer<typeof PostInterviewJobPayloadSchema>;

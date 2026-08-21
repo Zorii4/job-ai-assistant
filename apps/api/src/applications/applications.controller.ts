@@ -15,6 +15,7 @@ import {
 import { CurrentSession, type AuthenticatedSession } from '../auth/authentication.guard.js';
 import {
   parseCreateApplicationCaseFileRequest,
+  parseCreatePostInterviewRequest,
   parseAnalysisRunId,
   parseArtifactId,
   parseApplicationCaseId,
@@ -105,6 +106,40 @@ export class ApplicationsController {
     @Param('applicationCaseId') applicationCaseId: string,
   ) {
     const analysisRun = await this.applicationsService.launchHrPreparationForUser(
+      session.user.id,
+      parseApplicationCaseId(applicationCaseId),
+    );
+
+    return AnalysisRunResponseSchema.parse({
+      schemaVersion: API_SCHEMA_VERSION,
+      analysisRun,
+    });
+  }
+
+  @Post(':applicationCaseId/post-interview')
+  async launchPostInterview(
+    @CurrentSession() session: AuthenticatedSession,
+    @Param('applicationCaseId') applicationCaseId: string,
+    @Body() body: unknown,
+  ) {
+    const analysisRun = await this.applicationsService.launchPostInterviewForUser(
+      session.user.id,
+      parseApplicationCaseId(applicationCaseId),
+      parseCreatePostInterviewRequest(body),
+    );
+
+    return AnalysisRunResponseSchema.parse({
+      schemaVersion: API_SCHEMA_VERSION,
+      analysisRun,
+    });
+  }
+
+  @Post(':applicationCaseId/post-interview/retry')
+  async retryPostInterview(
+    @CurrentSession() session: AuthenticatedSession,
+    @Param('applicationCaseId') applicationCaseId: string,
+  ) {
+    const analysisRun = await this.applicationsService.retryPostInterviewForUser(
       session.user.id,
       parseApplicationCaseId(applicationCaseId),
     );

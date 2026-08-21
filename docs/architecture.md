@@ -41,8 +41,8 @@ Initial AI workflow
 - `packages/contracts` — shared Zod runtime contracts для public API.
 - `prisma` — PostgreSQL schema и миграции.
 - `apps/worker` — отдельный PgBoss consumer. Он получает только IDs, загружает
-  snapshots из PostgreSQL и выполняет initial workflow и отдельный HR-preparation
-  workflow без HTTP-сервера.
+  snapshots из PostgreSQL и выполняет initial workflow, HR-preparation и отдельный
+  post-interview workflow без HTTP-сервера.
 - `compose.yaml` — локальный стек web, API, worker и PostgreSQL за одним origin.
 
 ### Initial AI core и legacy adapters
@@ -73,6 +73,14 @@ LLM-вызов без Critic и revision, валидирует 5–10 пар «�
 и сохраняет отдельный read-only Artifact. Карточка приглашённой вакансии запускает
 этот workflow, показывает его статус и открывает готовый материал на существующей
 странице результата.
+
+Post-interview разбор также остаётся отдельным одношаговым use case. Пользователь
+вручную вводит сообщение HR до 8 000 символов; сервер удаляет финальную подпись и
+прямые идентификаторы до persistence, не сохраняя raw-текст. Worker получает только
+это обезличенное сообщение, snapshot вакансии и `finalMarkdown` успешного initial run,
+выполняет один structured LLM-вызов без Critic и revision и атомарно создаёт
+`POST_INTERVIEW_REVIEW` и `HR_CLOSING_MESSAGE`. Failed run допускает один ручной retry;
+LLM не меняет этап вакансии.
 
 ### Prompt boundary
 

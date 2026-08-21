@@ -61,5 +61,7 @@ function getArtifactTitle(type: ArtifactSummary['type']): string {
     RECRUITER_MESSAGE: 'Сообщение рекрутеру',
     FOLLOW_UP: 'Follow-up',
     HR_SCREENING_PREPARATION: 'Подготовка к HR-скринингу',
+    POST_INTERVIEW_REVIEW: 'Разбор HR-скрининга',
+    HR_CLOSING_MESSAGE: 'Закрывающее сообщение HR',
   }[type];
 }
