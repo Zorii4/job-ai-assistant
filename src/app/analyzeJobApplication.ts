@@ -14,10 +14,22 @@ import type {
 } from "../types/jobApplication.js";
 import { WebAnalysisWorkflowError } from "../types/jobApplication.js";
 import type { AnalysisRunPersistence } from "./ports/analysisRunPersistence.js";
+import {
+  getInitialWorkflowCheckpointFingerprint,
+  initialWorkflowCheckpointSchema,
+  type InitialWorkflowCheckpoint,
+} from "../ai/initialWorkflowCheckpoint.js";
 
 export type AnalyzeJobApplicationDependencies = {
   persistence: AnalysisRunPersistence;
   createRunId: () => string;
+  checkpointStore?: InitialWorkflowCheckpointStore;
+};
+
+export type InitialWorkflowCheckpointStore = {
+  load(runId: string): Promise<{ fingerprint: string; checkpoint: unknown } | null>;
+  save(runId: string, fingerprint: string, checkpoint: InitialWorkflowCheckpoint): Promise<void>;
+  clear(runId: string): Promise<void>;
 };
 
 export type AnalyzeJobApplicationUseCase = (
@@ -71,6 +83,21 @@ async function runAnalyzeJobApplication(
 
   try {
     const prompts = await loadInitialWorkflowPromptBundle();
+    const checkpointFingerprint = getInitialWorkflowCheckpointFingerprint(config, prompts, {
+      resumeText: input.resumeText,
+      vacancyText: input.vacancyText,
+    });
+    const storedCheckpoint = await dependencies.checkpointStore?.load(runId);
+    let checkpoint: InitialWorkflowCheckpoint | undefined;
+
+    if (storedCheckpoint?.fingerprint === checkpointFingerprint) {
+      const parsed = initialWorkflowCheckpointSchema.safeParse(storedCheckpoint.checkpoint);
+      if (parsed.success) checkpoint = parsed.data;
+      else await dependencies.checkpointStore?.clear(runId);
+    } else if (storedCheckpoint !== null && storedCheckpoint !== undefined) {
+      await dependencies.checkpointStore?.clear(runId);
+    }
+
     const workflowResult = await runInitialAnalysisWorkflow({
       documents: {
         resumeText: input.resumeText,
@@ -79,6 +106,7 @@ async function runAnalyzeJobApplication(
       config,
       prompts,
       deadlineAt,
+      checkpoint,
       onProgress: input.onProgress,
       onStepStarted: (stepName) => {
         currentStepName = stepName;
@@ -90,7 +118,10 @@ async function runAnalyzeJobApplication(
       },
       onStateChanged: (state) => {
         workflowState = state;
-      }
+      },
+      onCheckpoint: async (nextCheckpoint) => {
+        await dependencies.checkpointStore?.save(runId, checkpointFingerprint, nextCheckpoint);
+      },
     });
     workflowState = workflowResult.state;
 
@@ -102,6 +133,7 @@ async function runAnalyzeJobApplication(
     };
 
     await persistence.saveFinal(runId, result.finalMarkdown);
+    await dependencies.checkpointStore?.clear(runId);
     await persistence.saveMeta(runId, result.meta, steps);
     await persistence.cleanupOldRuns();
 

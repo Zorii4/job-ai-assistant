@@ -4,6 +4,7 @@ import { StructuredResponseValidationError } from "../llm/llmClient.js";
 import { orchestratorAgent } from "../agents/orchestrator.agent.js";
 import { producerAgent } from "../agents/producer.agent.js";
 import type { InitialWorkflowPromptBundle } from "./initialWorkflowPromptBundle.js";
+import type { InitialWorkflowCheckpoint } from "./initialWorkflowCheckpoint.js";
 import type { AnalystResult } from "../contracts/analyst.contract.js";
 import type { CriticResult } from "../contracts/critic.contract.js";
 import type {
@@ -40,6 +41,8 @@ export type InitialAnalysisWorkflowInput = {
   onStepStarted?: (stepName: JobApplicationAgentName) => Promise<void> | void;
   onStepCompleted?: (step: JobApplicationStep) => Promise<void> | void;
   onStateChanged?: (state: InitialAnalysisWorkflowState) => Promise<void> | void;
+  checkpoint?: InitialWorkflowCheckpoint;
+  onCheckpoint?: (checkpoint: InitialWorkflowCheckpoint) => Promise<void> | void;
 };
 
 export type InitialAnalysisWorkflowResult = {
@@ -65,10 +68,12 @@ export async function runInitialAnalysisWorkflow(
   input: InitialAnalysisWorkflowInput
 ): Promise<InitialAnalysisWorkflowResult> {
   const { config, deadlineAt, documents, prompts } = input;
-  let latestProducerOutput = "";
-  let latestCriticResult: CriticResult | undefined;
-  let finalDecision: CriticDecision = "UNKNOWN";
-  let revisionCyclesUsed = 0;
+  let latestProducerOutput = input.checkpoint?.latestProducerOutput ?? "";
+  let latestProducerVersion = input.checkpoint?.latestProducerVersion ?? 0;
+  let latestCriticResult: CriticResult | undefined = input.checkpoint?.latestCriticResult;
+  let latestFinalMarkdown = input.checkpoint?.finalMarkdown;
+  let finalDecision: CriticDecision = latestCriticResult?.decision ?? "UNKNOWN";
+  let revisionCyclesUsed = Math.max(0, latestProducerVersion - 1);
 
   const getState = (): InitialAnalysisWorkflowState => ({
     revisionCyclesUsed,
@@ -77,6 +82,18 @@ export async function runInitialAnalysisWorkflow(
 
   const notifyStateChanged = async (): Promise<void> => {
     await input.onStateChanged?.(getState());
+  };
+
+  const saveCheckpoint = async (analystResult: AnalystResult): Promise<void> => {
+    await input.onCheckpoint?.({
+      schemaVersion: 1,
+      analystResult,
+      ...(latestProducerOutput
+        ? { latestProducerOutput, latestProducerVersion }
+        : {}),
+      ...(latestCriticResult ? { latestCriticResult } : {}),
+      ...(latestFinalMarkdown ? { finalMarkdown: latestFinalMarkdown } : {}),
+    });
   };
 
   const beginStep = async (
@@ -88,54 +105,68 @@ export async function runInitialAnalysisWorkflow(
   };
 
   const analystStepName = "analyst";
-  await beginStep("analyst", analystStepName);
-  const analystResult = await runStep(
-    analystStepName,
-    () => analystAgent(documents, createStepOptions(analystStepName, config, deadlineAt), prompts.analyst),
-    input.onStepCompleted
-  );
+  let analystResult = input.checkpoint?.analystResult;
 
-  for (let cycle = 1; cycle <= config.maxProducerVersions; cycle += 1) {
+  if (analystResult === undefined) {
+    await beginStep("analyst", analystStepName);
+    analystResult = await runStep(
+      analystStepName,
+      () => analystAgent(documents, createStepOptions(analystStepName, config, deadlineAt), prompts.analyst),
+      input.onStepCompleted,
+    );
+    await saveCheckpoint(analystResult);
+  }
+
+  for (let cycle = Math.max(1, latestProducerVersion); cycle <= config.maxProducerVersions; cycle += 1) {
     const producerStepName = `producer.v${cycle}` as JobApplicationAgentName;
     const criticStepName = `critic.v${cycle}` as JobApplicationAgentName;
     const producerLogMessage =
       cycle > 1 ? `[app] revision required, starting producer v${cycle}` : undefined;
 
-    if (cycle > 1) {
+    if (cycle > 1 && latestProducerVersion < cycle) {
       revisionCyclesUsed += 1;
       await notifyStateChanged();
     }
 
-    await beginStep("producer", producerStepName);
-    latestProducerOutput = await runStep(
-      producerStepName,
-      () =>
-        producerAgent(
-          documents,
-          analystResult,
-          createStepOptions(producerStepName, config, deadlineAt),
-          prompts.producer,
-          latestProducerOutput || undefined,
-          latestCriticResult
-        ),
-      input.onStepCompleted,
-      producerLogMessage
-    );
+    if (latestProducerVersion < cycle) {
+      await beginStep("producer", producerStepName);
+      latestProducerOutput = await runStep(
+        producerStepName,
+        () =>
+          producerAgent(
+            documents,
+            analystResult,
+            createStepOptions(producerStepName, config, deadlineAt),
+            prompts.producer,
+            latestProducerOutput || undefined,
+            latestCriticResult,
+          ),
+        input.onStepCompleted,
+        producerLogMessage,
+      );
+      latestProducerVersion = cycle;
+      latestCriticResult = undefined;
+      finalDecision = "UNKNOWN";
+      await saveCheckpoint(analystResult);
+    }
 
-    await beginStep("critic", criticStepName);
-    latestCriticResult = await runStep(
-      criticStepName,
-      () =>
-        criticAgent(
-          documents,
-          analystResult,
-          latestProducerOutput,
-          cycle,
-          createStepOptions(criticStepName, config, deadlineAt),
-          prompts.critic
-        ),
-      input.onStepCompleted
-    );
+    if (latestCriticResult === undefined) {
+      await beginStep("critic", criticStepName);
+      latestCriticResult = await runStep(
+        criticStepName,
+        () =>
+          criticAgent(
+            documents,
+            analystResult,
+            latestProducerOutput,
+            cycle,
+            createStepOptions(criticStepName, config, deadlineAt),
+            prompts.critic,
+          ),
+        input.onStepCompleted,
+      );
+      await saveCheckpoint(analystResult);
+    }
 
     finalDecision = latestCriticResult.decision;
     await notifyStateChanged();
@@ -158,26 +189,29 @@ export async function runInitialAnalysisWorkflow(
   }
 
   const finalStepName = "orchestrator.final";
-  await beginStep("final", finalStepName);
-  const finalMarkdown = await runStep(
-    finalStepName,
-    () =>
-      orchestratorAgent(
-        {
-          mode: "final",
-          resumeText: documents.resumeText,
-          vacancyText: documents.vacancyText,
-          analystResult,
-          latestProducerOutput
-        },
-        createStepOptions(finalStepName, config, deadlineAt),
-        prompts.orchestrator
-      ),
-    input.onStepCompleted
-  );
+  if (latestFinalMarkdown === undefined) {
+    await beginStep("final", finalStepName);
+    latestFinalMarkdown = await runStep(
+      finalStepName,
+      () =>
+        orchestratorAgent(
+          {
+            mode: "final",
+            resumeText: documents.resumeText,
+            vacancyText: documents.vacancyText,
+            analystResult,
+            latestProducerOutput
+          },
+          createStepOptions(finalStepName, config, deadlineAt),
+          prompts.orchestrator
+        ),
+      input.onStepCompleted,
+    );
+    await saveCheckpoint(analystResult);
+  }
 
   return {
-    finalMarkdown,
+    finalMarkdown: latestFinalMarkdown,
     state: getState()
   };
 }

@@ -82,12 +82,20 @@ function main() {
     .split(/\r?\n/)
     .filter(Boolean);
   const rules = loadPolicy();
-  const objectPrefix = mode === "staged" ? ":" : "HEAD:";
   const violations = checkFiles({
     mode,
     paths,
     rules,
-    readContent: (filePath) => git(["show", `${objectPrefix}${filePath}`]),
+    readContent: (filePath) => {
+      if (mode === "staged") return git(["show", `:${filePath}`]);
+
+      try {
+        return git(["show", `HEAD:${filePath}`]);
+      } catch {
+        // A newly staged file is tracked by the index but has no HEAD object yet.
+        return readFileSync(filePath, "utf8");
+      }
+    },
   });
 
   if (violations.length > 0) {

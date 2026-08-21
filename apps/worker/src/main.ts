@@ -30,6 +30,11 @@ type LegacyWorkflowModule = {
       cleanupOldRuns(): Promise<void>;
     };
     createRunId: () => string;
+    checkpointStore?: {
+      load(runId: string): Promise<{ fingerprint: string; checkpoint: unknown } | null>;
+      save(runId: string, fingerprint: string, checkpoint: unknown): Promise<void>;
+      clear(runId: string): Promise<void>;
+    };
   }) => LegacyInitialAnalysis;
 };
 
@@ -72,6 +77,11 @@ export async function startWorker(): Promise<void> {
     expireInSeconds: 600,
   });
 
+  const interruptedInitialAnalysisRuns = await recoverInterruptedInitialAnalysisRuns(database);
+  for (const run of interruptedInitialAnalysisRuns) {
+    await boss.send(queueName, run, { singletonKey: run.analysisRunId });
+  }
+
   const legacyWorkflow = await loadLegacyWorkflow();
   const hrPreparationWorkflow = await loadHRPreparationWorkflow();
   const postInterviewWorkflow = await loadPostInterviewWorkflow();
@@ -84,6 +94,7 @@ export async function startWorker(): Promise<void> {
         const runInitialAnalysis = legacyWorkflow.createAnalyzeJobApplication({
           persistence: createDatabasePersistence(database, payload.analysisRunId),
           createRunId: () => payload.analysisRunId,
+          checkpointStore: createDatabaseCheckpointStore(database),
         });
 
         try {
@@ -164,6 +175,73 @@ function createDatabasePersistence(database: Pool, analysisRunId: string) {
     },
     async saveMeta(): Promise<void> {},
     async cleanupOldRuns(): Promise<void> {},
+  };
+}
+
+export async function recoverInterruptedInitialAnalysisRuns(
+  database: Pick<Pool, 'query'>,
+): Promise<InitialAnalysisJobPayload[]> {
+  const result = await database.query<InitialAnalysisJobPayload>(
+    `UPDATE analysis_run AS run
+     SET status = 'QUEUED', "currentStage" = NULL, "errorCode" = NULL,
+         "errorMessageSanitized" = NULL, "updatedAt" = CURRENT_TIMESTAMP
+     FROM application_case AS application
+     WHERE run."workflowType" = 'INITIAL_ANALYSIS'
+       AND run.status = 'RUNNING'
+       AND application.id = run."applicationCaseId"
+       AND application.status = 'ANALYZING'
+     RETURNING run."applicationCaseId" AS "applicationCaseId", run.id AS "analysisRunId"`,
+  );
+
+  return result.rows.map((row) => InitialAnalysisJobPayloadSchema.parse(row));
+}
+
+function createDatabaseCheckpointStore(database: Pool) {
+  return {
+    async load(runId: string) {
+      const result = await database.query<{
+        initialWorkflowCheckpoint: unknown;
+        initialWorkflowCheckpointFingerprint: string | null;
+      }>(
+        `SELECT "initialWorkflowCheckpoint", "initialWorkflowCheckpointFingerprint"
+         FROM analysis_run WHERE id = $1`,
+        [runId],
+      );
+      const record = result.rows[0];
+
+      if (
+        record === undefined ||
+        record.initialWorkflowCheckpoint === null ||
+        record.initialWorkflowCheckpointFingerprint === null
+      ) {
+        return null;
+      }
+
+      return {
+        fingerprint: record.initialWorkflowCheckpointFingerprint,
+        checkpoint: record.initialWorkflowCheckpoint,
+      };
+    },
+    async save(runId: string, fingerprint: string, checkpoint: unknown): Promise<void> {
+      await database.query(
+        `UPDATE analysis_run
+         SET "initialWorkflowCheckpoint" = $1::jsonb,
+             "initialWorkflowCheckpointFingerprint" = $2,
+             "updatedAt" = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        [JSON.stringify(checkpoint), fingerprint, runId],
+      );
+    },
+    async clear(runId: string): Promise<void> {
+      await database.query(
+        `UPDATE analysis_run
+         SET "initialWorkflowCheckpoint" = NULL,
+             "initialWorkflowCheckpointFingerprint" = NULL,
+             "updatedAt" = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [runId],
+      );
+    },
   };
 }
 

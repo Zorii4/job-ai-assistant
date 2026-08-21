@@ -174,6 +174,8 @@ model AnalysisRun {
   queueJobId        String?              @unique
   finalMarkdown     String?
   editedFinalMarkdown String?
+  initialWorkflowCheckpoint Json?
+  initialWorkflowCheckpointFingerprint String?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
   applicationCase   ApplicationCase      @relation(fields: [applicationCaseId], references: [id], onDelete: Cascade)
