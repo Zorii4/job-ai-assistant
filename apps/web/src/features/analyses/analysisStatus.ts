@@ -23,6 +23,7 @@ export function getAnalysisErrorLabel(errorCode: string | null): string {
   if (errorCode?.startsWith('PRODUCER_')) return 'Сбой на этапе подготовки материалов.';
   if (errorCode?.startsWith('CRITIC_')) return 'Сбой на этапе проверки материалов.';
   if (errorCode?.startsWith('FINAL_')) return 'Сбой на этапе сборки результата.';
+  if (errorCode?.startsWith('POST_INTERVIEW_')) return 'Не удалось завершить разбор после HR.';
   if (errorCode === 'QUEUE_UNAVAILABLE') return 'Не удалось поставить анализ в очередь.';
   return 'Анализ завершился с технической ошибкой.';
 }

@@ -748,6 +748,33 @@ h3 {
   border-top: var(--rule-width) solid var(--color-rule);
 }
 
+.post-interview-panel {
+  display: grid;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: var(--rule-width) solid var(--color-rule);
+}
+
+.post-interview-panel h2,
+.post-interview-panel p {
+  margin: 0;
+}
+
+.post-interview-panel > div > p:last-child {
+  max-width: var(--measure-body);
+  margin-top: var(--space-2xs);
+  color: var(--color-ink-muted);
+  font-size: var(--text-sm);
+  line-height: var(--line-body);
+}
+
+.post-interview-panel__count {
+  color: var(--color-ink-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
 .artifact-materials {
   display: grid;
   gap: var(--space-md);

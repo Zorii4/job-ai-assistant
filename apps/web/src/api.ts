@@ -306,6 +306,35 @@ export async function launchHrPreparation(
   return payload.analysisRun;
 }
 
+export async function launchPostInterview(
+  baseUrl: string,
+  applicationCaseId: string,
+  hrMessage: string,
+): Promise<AnalysisRunSummary> {
+  const response = await fetch(`${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}/post-interview`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hrMessage }),
+  });
+  const payload = await parseResponse(response, AnalysisRunResponseSchema, 'API returned an invalid post-interview run response.');
+
+  return payload.analysisRun;
+}
+
+export async function retryPostInterview(
+  baseUrl: string,
+  applicationCaseId: string,
+): Promise<AnalysisRunSummary> {
+  const response = await fetch(`${baseUrl}/applications/${encodeURIComponent(applicationCaseId)}/post-interview/retry`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  const payload = await parseResponse(response, AnalysisRunResponseSchema, 'API returned an invalid post-interview retry response.');
+
+  return payload.analysisRun;
+}
+
 export async function getInitialAnalysisStatus(
   baseUrl: string,
   applicationCaseId: string,

@@ -4,6 +4,8 @@ import { PgBoss } from 'pg-boss';
 import {
   HRPreparationJobPayloadSchema,
   type HRPreparationJobPayload,
+  PostInterviewJobPayloadSchema,
+  type PostInterviewJobPayload,
   InitialAnalysisJobPayloadSchema,
   type InitialAnalysisJobPayload,
 } from '@job-ai-assistant/contracts';
@@ -12,6 +14,7 @@ import { getDatabaseUrl } from '../database/prisma.service.js';
 
 export const INITIAL_ANALYSIS_QUEUE = 'initial-analysis';
 export const HR_PREPARATION_QUEUE = 'hr-preparation';
+export const POST_INTERVIEW_QUEUE = 'post-interview';
 
 @Injectable()
 export class JobsService implements OnModuleDestroy {
@@ -40,6 +43,20 @@ export class JobsService implements OnModuleDestroy {
 
     if (jobId === null) {
       throw new Error('Failed to enqueue HR preparation job.');
+    }
+
+    return jobId;
+  }
+
+  async enqueuePostInterview(payload: PostInterviewJobPayload): Promise<string> {
+    const job = PostInterviewJobPayloadSchema.parse(payload);
+    const boss = await this.getBoss();
+    const jobId = await boss.send(POST_INTERVIEW_QUEUE, job, {
+      singletonKey: job.analysisRunId,
+    });
+
+    if (jobId === null) {
+      throw new Error('Failed to enqueue post-interview job.');
     }
 
     return jobId;
@@ -76,6 +93,12 @@ export class JobsService implements OnModuleDestroy {
       expireInSeconds: 900,
     });
     await boss.createQueue(HR_PREPARATION_QUEUE, {
+      retryLimit: 2,
+      retryDelay: 5,
+      retryBackoff: true,
+      expireInSeconds: 600,
+    });
+    await boss.createQueue(POST_INTERVIEW_QUEUE, {
       retryLimit: 2,
       retryDelay: 5,
       retryBackoff: true,

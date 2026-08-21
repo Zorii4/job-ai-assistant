@@ -186,6 +186,7 @@ test('lists only the owners analysis snapshots without source texts', async () =
       updatedAt: '2026-08-03T18:00:00.000Z',
     },
     hrPreparationRun: null,
+    postInterviewRun: null,
   }]);
   assert.deepEqual(findArguments, {
     where: { userId: 'user-1' },
@@ -198,7 +199,7 @@ test('lists only the owners analysis snapshots without source texts', async () =
       createdAt: true,
       updatedAt: true,
       analysisRuns: {
-        where: { workflowType: { in: ['INITIAL_ANALYSIS', 'HR_PREPARATION'] } },
+        where: { workflowType: { in: ['INITIAL_ANALYSIS', 'HR_PREPARATION', 'POST_INTERVIEW'] } },
         select: {
           id: true,
           applicationCaseId: true,

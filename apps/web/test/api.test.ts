@@ -187,6 +187,7 @@ test('loads server-owned vacancy snapshots with their analysis runs', async (t) 
           updatedAt: '2026-08-13T12:00:00.000Z',
         },
         hrPreparationRun: null,
+        postInterviewRun: null,
       }],
     });
   };

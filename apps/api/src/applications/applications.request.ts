@@ -2,9 +2,11 @@ import { BadRequestException } from '@nestjs/common';
 
 import {
   CreateApplicationCaseFileRequestSchema,
+  CreatePostInterviewRequestSchema,
   UpdateInitialAnalysisResultRequestSchema,
   UpdateArtifactRequestSchema,
   type CreateApplicationCaseFileRequest,
+  type CreatePostInterviewRequest,
   type UpdateInitialAnalysisResultRequest,
   type UpdateArtifactRequest,
 } from '@job-ai-assistant/contracts';
@@ -33,6 +35,16 @@ export function parseArtifactId(input: string): string {
 
 export function parseUpdateArtifactRequest(input: unknown): UpdateArtifactRequest {
   const result = UpdateArtifactRequestSchema.safeParse(input);
+
+  if (!result.success) {
+    throw new BadRequestException();
+  }
+
+  return result.data;
+}
+
+export function parseCreatePostInterviewRequest(input: unknown): CreatePostInterviewRequest {
+  const result = CreatePostInterviewRequestSchema.safeParse(input);
 
   if (!result.success) {
     throw new BadRequestException();

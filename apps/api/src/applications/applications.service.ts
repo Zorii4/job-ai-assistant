@@ -16,6 +16,7 @@ import type {
   InitialAnalysisResult,
   AnalysisRunSummary,
   CreateApplicationCaseFileRequest,
+  CreatePostInterviewRequest,
   UpdateArtifactRequest,
   UpdateInitialAnalysisResultRequest,
 } from '@job-ai-assistant/contracts';
@@ -23,7 +24,7 @@ import type {
 import { ApplicationCaseStatus, Prisma } from '../generated/prisma/client.js';
 import { prisma } from '../database/prisma.service.js';
 import { JobsService } from '../jobs/jobs.service.js';
-import { sanitizeDirectIdentifiers } from '../resumes/resume-sanitizer.js';
+import { sanitizeDirectIdentifiers, sanitizePostInterviewHrMessage } from '../resumes/resume-sanitizer.js';
 import { getUsagePolicy } from '../usage/usage-policy.js';
 import { AnalysisQuotaExceededException } from './analysis-quota-exceeded.exception.js';
 import { AnalysisCapacityExceededException } from './analysis-capacity-exceeded.exception.js';
@@ -77,7 +78,7 @@ const initialAnalysisResultSelect = {
 type AnalysisRunRecord = {
   id: string;
   applicationCaseId: string;
-  workflowType: 'INITIAL_ANALYSIS' | 'HR_PREPARATION';
+  workflowType: 'INITIAL_ANALYSIS' | 'HR_PREPARATION' | 'POST_INTERVIEW';
   status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
   currentStage: string | null;
   errorCode: string | null;
@@ -118,7 +119,7 @@ export class ApplicationsService {
         createdAt: true,
         updatedAt: true,
         analysisRuns: {
-          where: { workflowType: { in: ['INITIAL_ANALYSIS', 'HR_PREPARATION'] } },
+          where: { workflowType: { in: ['INITIAL_ANALYSIS', 'HR_PREPARATION', 'POST_INTERVIEW'] } },
           select: analysisRunSummarySelect,
         },
       },
@@ -340,6 +341,153 @@ export class ApplicationsService {
 
     try {
       const queueJobId = await this.getJobsService().enqueueHrPreparation({
+        applicationCaseId: analysisRun.applicationCaseId,
+        analysisRunId: analysisRun.id,
+      });
+      await this.database.analysisRun.update({
+        where: { id: analysisRun.id },
+        data: { queueJobId },
+      });
+    } catch {
+      await this.database.analysisRun.update({
+        where: { id: analysisRun.id },
+        data: {
+          status: 'FAILED',
+          finishedAt: new Date(),
+          errorCode: 'QUEUE_UNAVAILABLE',
+          errorMessageSanitized: 'QUEUE_UNAVAILABLE',
+        },
+      });
+      throw new ServiceUnavailableException();
+    }
+
+    return toAnalysisRunSummary(analysisRun);
+  }
+
+  async launchPostInterviewForUser(
+    userId: string,
+    applicationCaseId: string,
+    input: CreatePostInterviewRequest,
+  ): Promise<AnalysisRunSummary> {
+    const { sanitizedText: sanitizedHrMessage } = sanitizePostInterviewHrMessage(input.hrMessage);
+
+    if (sanitizedHrMessage.trim().length === 0) {
+      throw new BadRequestException('HR message must contain feedback before the signature.');
+    }
+
+    const analysisRun = await this.runSerializableTransaction(async (transaction) => {
+      const applicationCase = await transaction.applicationCase.findFirst({
+        where: { id: applicationCaseId, userId },
+        select: { id: true, status: true },
+      });
+
+      if (applicationCase === null) {
+        throw new NotFoundException();
+      }
+
+      if (applicationCase.status !== 'HR_INVITED' && applicationCase.status !== 'HR_PREPARATION_READY') {
+        throw new BadRequestException('Post-interview analysis is available only after HR screening.');
+      }
+
+      const initialAnalysis = await transaction.analysisRun.findFirst({
+        where: {
+          applicationCaseId: applicationCase.id,
+          workflowType: 'INITIAL_ANALYSIS',
+          status: 'SUCCEEDED',
+          finalMarkdown: { not: null },
+        },
+        select: { id: true },
+      });
+
+      if (initialAnalysis === null) {
+        throw new BadRequestException('A successful initial analysis is required.');
+      }
+
+      const existingRun = await transaction.analysisRun.findFirst({
+        where: { applicationCaseId: applicationCase.id, workflowType: 'POST_INTERVIEW' },
+        select: { id: true },
+      });
+
+      if (existingRun !== null) {
+        throw new BadRequestException('Post-interview analysis has already been started.');
+      }
+
+      await transaction.postInterviewInput.upsert({
+        where: { applicationCaseId: applicationCase.id },
+        create: { applicationCaseId: applicationCase.id, sanitizedHrMessage },
+        update: { sanitizedHrMessage },
+      });
+      await transaction.applicationCase.update({
+        where: { id: applicationCase.id },
+        data: { status: 'HR_COMPLETED', currentStage: 'HR_COMPLETED' },
+      });
+      await transaction.stageEvent.create({
+        data: { applicationCaseId: applicationCase.id, fromStage: applicationCase.status, toStage: 'HR_COMPLETED', source: 'USER' },
+      });
+
+      return transaction.analysisRun.create({
+        data: {
+          applicationCaseId: applicationCase.id,
+          workflowType: 'POST_INTERVIEW',
+          status: 'QUEUED',
+        },
+        select: analysisRunSummarySelect,
+      });
+    });
+
+    return this.enqueuePostInterviewRun(analysisRun);
+  }
+
+  async retryPostInterviewForUser(userId: string, applicationCaseId: string): Promise<AnalysisRunSummary> {
+    const analysisRun = await this.runSerializableTransaction(async (transaction) => {
+      const applicationCase = await transaction.applicationCase.findFirst({
+        where: { id: applicationCaseId, userId },
+        select: { id: true, status: true },
+      });
+
+      if (applicationCase === null) {
+        throw new NotFoundException();
+      }
+
+      if (applicationCase.status !== 'HR_COMPLETED') {
+        throw new BadRequestException('Post-interview retry is unavailable for this stage.');
+      }
+
+      const existingRun = await transaction.analysisRun.findFirst({
+        where: { applicationCaseId: applicationCase.id, workflowType: 'POST_INTERVIEW' },
+        select: { id: true, status: true, manualRetryCount: true },
+      });
+
+      if (existingRun === null || existingRun.status !== 'FAILED') {
+        throw new BadRequestException('Post-interview retry is unavailable.');
+      }
+
+      if (existingRun.manualRetryCount >= 1) {
+        throw new BadRequestException('Post-interview retry limit has been reached.');
+      }
+
+      return transaction.analysisRun.update({
+        where: { id: existingRun.id },
+        data: {
+          status: 'QUEUED',
+          currentStage: null,
+          errorCode: null,
+          errorMessageSanitized: null,
+          queueJobId: null,
+          startedAt: null,
+          finishedAt: null,
+          manualRetryCount: { increment: 1 },
+        },
+        select: analysisRunSummarySelect,
+      });
+    });
+
+    return this.enqueuePostInterviewRun(analysisRun);
+  }
+
+  private async enqueuePostInterviewRun(analysisRun: AnalysisRunRecord): Promise<AnalysisRunSummary> {
+    try {
+      const queueJobId = await this.getJobsService().enqueuePostInterview({
         applicationCaseId: analysisRun.applicationCaseId,
         analysisRunId: analysisRun.id,
       });
@@ -657,6 +805,7 @@ function toApplicationCaseAnalysisSummary(record: ApplicationCaseAnalysisRecord)
     updatedAt: record.updatedAt.toISOString(),
     analysisRun: toOptionalAnalysisRunSummary(record.analysisRuns, 'INITIAL_ANALYSIS'),
     hrPreparationRun: toOptionalAnalysisRunSummary(record.analysisRuns, 'HR_PREPARATION'),
+    postInterviewRun: toOptionalAnalysisRunSummary(record.analysisRuns, 'POST_INTERVIEW'),
   };
 }
 

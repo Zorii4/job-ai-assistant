@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { sanitizeDirectIdentifiers } from '../src/resumes/resume-sanitizer.js';
+import { sanitizeDirectIdentifiers, sanitizePostInterviewHrMessage } from '../src/resumes/resume-sanitizer.js';
 
 test('replaces direct identifiers with stable placeholders', () => {
   const result = sanitizeDirectIdentifiers(
@@ -141,5 +141,12 @@ test('preserves Markdown link, quote and code-block syntax while replacing perso
       'Связаться: [EMAIL_1]',
       '```',
     ].join('\n'),
+  );
+});
+
+test('removes a trailing HR signature before sanitizing direct identifiers', () => {
+  assert.equal(
+    sanitizePostInterviewHrMessage('Спасибо за интервью. Напишем до пятницы.\n\nС уважением,\nАнна Петрова\nanna@example.test\n+7 999 123-45-67').sanitizedText,
+    'Спасибо за интервью. Напишем до пятницы.',
   );
 });

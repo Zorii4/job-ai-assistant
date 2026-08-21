@@ -8,13 +8,17 @@ import {
   type HRPreparationJobPayload,
   InitialAnalysisJobPayloadSchema,
   type InitialAnalysisJobPayload,
+  PostInterviewJobPayloadSchema,
+  type PostInterviewJobPayload,
 } from '@job-ai-assistant/contracts';
 
 import { processHRPreparationJob, type HRPreparationUseCase } from './hr-preparation.worker.js';
 import { processInitialAnalysisJob, type LegacyInitialAnalysis } from './initial-analysis.worker.js';
+import { processPostInterviewJob, type PostInterviewUseCase } from './post-interview.worker.js';
 
 const queueName = 'initial-analysis';
 const hrPreparationQueueName = 'hr-preparation';
+const postInterviewQueueName = 'post-interview';
 
 type LegacyWorkflowModule = {
   createAnalyzeJobApplication: (dependencies: {
@@ -31,6 +35,10 @@ type LegacyWorkflowModule = {
 
 type HRPreparationWorkflowModule = {
   createPrepareForHrScreening: () => HRPreparationUseCase;
+};
+
+type PostInterviewWorkflowModule = {
+  createAnalyzePostInterview: () => PostInterviewUseCase;
 };
 
 export const initialAnalysisWorkerOptions = {
@@ -57,9 +65,16 @@ export async function startWorker(): Promise<void> {
     retryBackoff: true,
     expireInSeconds: 600,
   });
+  await boss.createQueue(postInterviewQueueName, {
+    retryLimit: 2,
+    retryDelay: 5,
+    retryBackoff: true,
+    expireInSeconds: 600,
+  });
 
   const legacyWorkflow = await loadLegacyWorkflow();
   const hrPreparationWorkflow = await loadHRPreparationWorkflow();
+  const postInterviewWorkflow = await loadPostInterviewWorkflow();
   await boss.work<InitialAnalysisJobPayload, void, typeof initialAnalysisWorkerOptions>(
     queueName,
     initialAnalysisWorkerOptions,
@@ -104,6 +119,26 @@ export async function startWorker(): Promise<void> {
       }
     },
   );
+  await boss.work<PostInterviewJobPayload, void, typeof initialAnalysisWorkerOptions>(
+    postInterviewQueueName,
+    initialAnalysisWorkerOptions,
+    async (jobs) => {
+      for (const job of jobs) {
+        const payload = PostInterviewJobPayloadSchema.parse(job.data);
+
+        try {
+          await processPostInterviewJob(payload, {
+            database,
+            analyzePostInterview: postInterviewWorkflow.createAnalyzePostInterview(),
+            retryRemaining: job.retryCount < job.retryLimit,
+          });
+        } catch {
+          console.error('[worker] post-interview persistence failed', { analysisRunId: payload.analysisRunId });
+          throw new Error('post_interview_failed');
+        }
+      }
+    },
+  );
 
   const shutdown = async () => {
     await boss.stop({ graceful: true, close: true });
@@ -140,6 +175,11 @@ async function loadLegacyWorkflow(): Promise<LegacyWorkflowModule> {
 async function loadHRPreparationWorkflow(): Promise<HRPreparationWorkflowModule> {
   const modulePath = new URL('../../../dist/app/prepareForHrScreening.js', import.meta.url);
   return import(modulePath.href) as Promise<HRPreparationWorkflowModule>;
+}
+
+async function loadPostInterviewWorkflow(): Promise<PostInterviewWorkflowModule> {
+  const modulePath = new URL('../../../dist/app/analyzePostInterview.js', import.meta.url);
+  return import(modulePath.href) as Promise<PostInterviewWorkflowModule>;
 }
 
 function loadProjectEnvironmentWhenMissing(variableName: string): void {
