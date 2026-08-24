@@ -48,29 +48,41 @@ export async function processHRPreparationJob(
   try {
     const generatedContent = formatHRPreparationMaterial(output.result);
     await dependencies.database.query(
-      `INSERT INTO artifact ("applicationCaseId", type, "generatedContent", "sourceRunId", "createdAt", "updatedAt")
-       VALUES ($1, 'HR_SCREENING_PREPARATION'::"ArtifactType", $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-       ON CONFLICT ("applicationCaseId", type) DO NOTHING`,
-      [job.applicationCaseId, generatedContent, job.analysisRunId],
-    );
-    await dependencies.database.query(
-      `UPDATE analysis_run
-       SET status = 'SUCCEEDED', "currentStage" = NULL, "model" = $1, "promptVersion" = $2,
-           "finishedAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
-       WHERE id = $3`,
-      [process.env.LLM_MODEL ?? null, output.promptVersion, job.analysisRunId],
-    );
-    await dependencies.database.query(
-      `UPDATE application_case
-       SET status = 'HR_PREPARATION_READY', "currentStage" = 'HR_PREPARATION_READY', "updatedAt" = CURRENT_TIMESTAMP
-       WHERE id = $1`,
-      [job.applicationCaseId],
-    );
-    await dependencies.database.query(
-      `INSERT INTO stage_event (id, "applicationCaseId", "fromStage", "toStage", source, "createdAt")
-       VALUES (concat('system-', $1, '-hr-preparation-ready'), $1, 'HR_INVITED', 'HR_PREPARATION_READY', 'SYSTEM', CURRENT_TIMESTAMP)
+      `WITH saved_artifact AS (
+         INSERT INTO artifact (id, "applicationCaseId", type, "generatedContent", "sourceRunId", "createdAt", "updatedAt")
+         VALUES (concat('hr-preparation-', $3::text), $1, 'HR_SCREENING_PREPARATION'::"ArtifactType", $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT ("applicationCaseId", type) DO UPDATE
+           SET "sourceRunId" = artifact."sourceRunId"
+         RETURNING "applicationCaseId"
+       ), completed_run AS (
+         UPDATE analysis_run AS run
+         SET status = 'SUCCEEDED', "currentStage" = NULL, "model" = $4, "promptVersion" = $5,
+             "errorCode" = NULL, "errorMessageSanitized" = NULL,
+             "finishedAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
+         FROM saved_artifact
+         WHERE run.id = $3
+           AND run."applicationCaseId" = saved_artifact."applicationCaseId"
+         RETURNING run."applicationCaseId"
+       ), completed_case AS (
+         UPDATE application_case AS application
+         SET status = 'HR_PREPARATION_READY', "currentStage" = 'HR_PREPARATION_READY',
+             "updatedAt" = CURRENT_TIMESTAMP
+         FROM completed_run
+         WHERE application.id = completed_run."applicationCaseId"
+         RETURNING application.id
+       )
+       INSERT INTO stage_event (id, "applicationCaseId", "fromStage", "toStage", source, "createdAt")
+       SELECT concat('system-', completed_case.id::text, '-hr-preparation-ready'), completed_case.id,
+              'HR_INVITED', 'HR_PREPARATION_READY', 'SYSTEM', CURRENT_TIMESTAMP
+       FROM completed_case
        ON CONFLICT DO NOTHING`,
-      [job.applicationCaseId],
+      [
+        job.applicationCaseId,
+        generatedContent,
+        job.analysisRunId,
+        process.env.LLM_MODEL ?? null,
+        output.promptVersion,
+      ],
     );
   } catch {
     await markHRPreparationPersistenceFailure(dependencies.database, job, dependencies.retryRemaining);

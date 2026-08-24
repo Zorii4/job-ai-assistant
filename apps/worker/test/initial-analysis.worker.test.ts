@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { extractInitialArtifacts, processInitialAnalysisJob } from '../src/initial-analysis.worker.js';
-import { recoverInterruptedInitialAnalysisRuns } from '../src/main.js';
+import { recoverCompletedInitialAnalysisRuns, recoverInterruptedInitialAnalysisRuns } from '../src/main.js';
 
 test('extracts the complete known material set from final markdown', () => {
   const markdown = [
@@ -90,8 +90,50 @@ test('loads only sanitized snapshots from the database before running initial an
   assert.equal(queries[0]?.values[0], 'run-1');
   assert.equal(queries.some((query) => query.values[0] === 'producer' && query.values[1] === 'run-1'), true);
   assert.equal(queries.some((query) => query.text.includes("SET status = 'SUCCEEDED'") && query.values[1] === 'run-1'), true);
-  assert.equal(queries.some((query) => query.text.includes("SET status = 'ANALYSIS_READY'") && query.values[0] === 'application-1'), true);
-  assert.deepEqual(queries.at(-1)?.values, ['application-1']);
+  assert.equal(queries.some((query) => query.text.includes("SET status = 'ANALYSIS_READY'") && query.values[1] === 'run-1'), true);
+  assert.equal(queries.some((query) => query.text.includes('WITH completed_run AS')), true);
+});
+
+test('finalizes an already generated report without calling the LLM again', async () => {
+  const queries: Array<{ text: string; values: readonly unknown[] }> = [];
+  let workflowCalls = 0;
+  const database = {
+    async query(text: string, values: readonly unknown[]) {
+      queries.push({ text, values });
+
+      if (text.startsWith('UPDATE analysis_run AS run')) {
+        return {
+          rows: [{
+            userId: 'user-1',
+            resumeSanitizedText: 'Resume',
+            vacancySanitizedText: 'Vacancy',
+            existingFinalMarkdown: '# Completed report',
+          }],
+        };
+      }
+
+      return { rows: [] };
+    },
+  };
+
+  await processInitialAnalysisJob(
+    { applicationCaseId: 'application-1', analysisRunId: 'run-1' },
+    {
+      database,
+      retryRemaining: false,
+      async runInitialAnalysis() {
+        workflowCalls += 1;
+        return { finalMarkdown: '# Unexpected rerun' };
+      },
+    },
+  );
+
+  assert.equal(workflowCalls, 0);
+  assert.equal(
+    queries.some((query) => query.text.includes("SET status = 'SUCCEEDED'") && query.values[0] === '# Completed report'),
+    true,
+  );
+  assert.equal(queries.some((query) => query.text.includes("SET status = 'ANALYSIS_READY'")), true);
 });
 
 test('marks a workflow failure terminally without storing raw errors or requeuing the full analysis', async () => {
@@ -136,13 +178,11 @@ test('marks a workflow failure terminally without storing raw errors or requeuin
   assert.equal(queries.some((query) => query.text.includes('initialAnalysisUnitsUsed') && query.values[0] === 'application-1'), true);
 });
 
-test('allows PgBoss to retry a persistence error after a completed workflow', async () => {
+test('requeues a timed out Analyst while preserving the checkpoint and quota', async () => {
   const queries: Array<{ text: string; values: readonly unknown[] }> = [];
-  let callCount = 0;
   const database = {
     async query(text: string, values: readonly unknown[]) {
       queries.push({ text, values });
-      callCount += 1;
 
       if (text.startsWith('UPDATE analysis_run AS run')) {
         return {
@@ -154,7 +194,91 @@ test('allows PgBoss to retry a persistence error after a completed workflow', as
         };
       }
 
-      if (callCount === 3) {
+      return { rows: [] };
+    },
+  };
+
+  await assert.rejects(
+    processInitialAnalysisJob(
+      { applicationCaseId: 'application-1', analysisRunId: 'run-1' },
+      {
+        database,
+        retryRemaining: true,
+        async runInitialAnalysis() {
+          throw Object.assign(new Error('provider timeout'), {
+            llmErrorCode: 'LLM_TIMEOUT',
+          stepName: 'analyst',
+          });
+        },
+      },
+    ),
+    /initial_analysis_transient_retry/,
+  );
+
+  assert.equal(queries.some((query) => query.text.includes("SET status = 'QUEUED'") && query.values.includes('WORKFLOW_RETRY')), true);
+  assert.equal(queries.some((query) => query.text.includes("SET status = 'FAILED'")), false);
+  assert.equal(queries.some((query) => query.text.includes('initialAnalysisUnitsUsed')), false);
+});
+
+test('requeues an invalid Critic response while preserving the checkpoint and quota', async () => {
+  const queries: Array<{ text: string; values: readonly unknown[] }> = [];
+  const database = {
+    async query(text: string, values: readonly unknown[]) {
+      queries.push({ text, values });
+
+      if (text.startsWith('UPDATE analysis_run AS run')) {
+        return {
+          rows: [{
+            userId: 'user-1',
+            resumeSanitizedText: '[EMAIL_1] experience',
+            vacancySanitizedText: 'Node.js developer',
+          }],
+        };
+      }
+
+      return { rows: [] };
+    },
+  };
+
+  await assert.rejects(
+    processInitialAnalysisJob(
+      { applicationCaseId: 'application-1', analysisRunId: 'run-1' },
+      {
+        database,
+        retryRemaining: true,
+        async runInitialAnalysis() {
+          throw Object.assign(new Error('invalid structured response'), {
+            llmErrorCode: 'LLM_RESPONSE_INVALID',
+            stepName: 'critic.v2',
+          });
+        },
+      },
+    ),
+    /initial_analysis_transient_retry/,
+  );
+
+  assert.equal(queries.some((query) => query.text.includes("SET status = 'QUEUED'") && query.values.includes('WORKFLOW_RETRY')), true);
+  assert.equal(queries.some((query) => query.text.includes("SET status = 'FAILED'")), false);
+  assert.equal(queries.some((query) => query.text.includes('initialAnalysisUnitsUsed')), false);
+});
+
+test('allows PgBoss to retry a persistence error after a completed workflow', async () => {
+  const queries: Array<{ text: string; values: readonly unknown[] }> = [];
+  const database = {
+    async query(text: string, values: readonly unknown[]) {
+      queries.push({ text, values });
+
+      if (text.startsWith('UPDATE analysis_run AS run')) {
+        return {
+          rows: [{
+            userId: 'user-1',
+            resumeSanitizedText: '[EMAIL_1] опыт',
+            vacancySanitizedText: 'Node.js developer',
+          }],
+        };
+      }
+
+      if (text.includes('WITH completed_run AS')) {
         throw new Error('database write failed');
       }
 
@@ -194,7 +318,10 @@ test('does not execute the workflow twice when the queue delivers the same compl
         };
       }
 
-      if (text.startsWith('INSERT INTO artifact')) artifactInserts.push(values);
+      if (text.startsWith('INSERT INTO artifact')) {
+        assert.match(text, /INSERT INTO artifact \(id,/);
+        artifactInserts.push(values);
+      }
       return { rows: [] };
     },
   };
@@ -232,4 +359,20 @@ test('requeues interrupted initial-analysis runs when the single worker restarts
   assert.deepEqual(recovered, [{ applicationCaseId: 'application-1', analysisRunId: 'run-1' }]);
   assert.match(queries[0]?.text ?? '', /status = 'RUNNING'/);
   assert.match(queries[0]?.text ?? '', /status = 'QUEUED'/);
+});
+
+test('recovers completed reports that failed only during result persistence', async () => {
+  const queries: Array<{ text: string; values: readonly unknown[] | undefined }> = [];
+  const recovered = await recoverCompletedInitialAnalysisRuns({
+    async query(text: string, values?: readonly unknown[]) {
+      queries.push({ text, values });
+      return { rows: [{ applicationCaseId: 'application-1', analysisRunId: 'run-1' }] };
+    },
+  } as never);
+
+  assert.deepEqual(recovered, [{ applicationCaseId: 'application-1', analysisRunId: 'run-1' }]);
+  assert.match(queries[0]?.text ?? '', /"finalMarkdown" IS NOT NULL/);
+  assert.match(queries[0]?.text ?? '', /status IN \('FAILED', 'QUEUED'\)/);
+  assert.match(queries[0]?.text ?? '', /'ANALYSIS_READY'/);
+  assert.match(queries[0]?.text ?? '', /SET status = 'QUEUED', "currentStage" = 'final'/);
 });

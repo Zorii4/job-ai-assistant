@@ -24,6 +24,7 @@ type ClaimedRun = {
   userId: string;
   resumeSanitizedText: string;
   vacancySanitizedText: string;
+  existingFinalMarkdown: string | null;
 };
 
 type InitialArtifact = {
@@ -46,6 +47,13 @@ type TerminalAnalysisErrorCode =
   | 'FINAL_RESPONSE_INVALID'
   | 'WORKFLOW_FAILED';
 
+class RetryableInitialAnalysisFailure extends Error {
+  constructor() {
+    super('initial_analysis_transient_retry');
+    this.name = 'RetryableInitialAnalysisFailure';
+  }
+}
+
 export async function processInitialAnalysisJob(
   payload: InitialAnalysisJobPayload,
   dependencies: {
@@ -64,34 +72,44 @@ export async function processInitialAnalysisJob(
   let result: { finalMarkdown: string };
 
   try {
-    result = await dependencies.runInitialAnalysis({
-      resumeText: claimed.resumeSanitizedText,
-      vacancyText: claimed.vacancySanitizedText,
-      source: 'web',
-      userId: claimed.userId,
-      onProgress: async ({ stage }) => {
-        try {
-          await dependencies.database.query(
-            `UPDATE analysis_run
-             SET "currentStage" = $1, "updatedAt" = CURRENT_TIMESTAMP
-             WHERE id = $2`,
-            [stage, job.analysisRunId],
-          );
-        } catch {
-          console.error('[worker] could not persist analysis progress', { analysisRunId: job.analysisRunId });
-        }
-      },
-    });
+    result = typeof claimed.existingFinalMarkdown === 'string' && claimed.existingFinalMarkdown.length > 0
+      ? { finalMarkdown: claimed.existingFinalMarkdown }
+      : await dependencies.runInitialAnalysis({
+          resumeText: claimed.resumeSanitizedText,
+          vacancyText: claimed.vacancySanitizedText,
+          source: 'web',
+          userId: claimed.userId,
+          onProgress: async ({ stage }) => {
+            try {
+              await dependencies.database.query(
+                `UPDATE analysis_run
+                 SET "currentStage" = $1, "updatedAt" = CURRENT_TIMESTAMP
+                 WHERE id = $2`,
+                [stage, job.analysisRunId],
+              );
+            } catch {
+              console.error('[worker] could not persist analysis progress', { analysisRunId: job.analysisRunId });
+            }
+          },
+        });
   } catch (error) {
-    // LLM workflow already owns its bounded model retries. Re-running the full
-    // Analyst -> Producer -> Critic pipeline would duplicate cost and hide the
-    // actual terminal outcome from the user.
+    // The workflow owns its bounded request/model retries. A transient failure
+    // can still happen after those attempts; PgBoss then resumes from the
+    // persisted checkpoint without consuming another analysis unit.
+    const terminalErrorCode = getTerminalAnalysisErrorCode(error);
+    const shouldRetry = dependencies.retryRemaining && isRetryableInitialAnalysisFailure(terminalErrorCode);
+
     await markRunForRetryOrFailure(
       dependencies.database,
       job,
-      false,
-      getTerminalAnalysisErrorCode(error),
+      shouldRetry,
+      terminalErrorCode,
     );
+
+    if (shouldRetry) {
+      throw new RetryableInitialAnalysisFailure();
+    }
+
     return;
   }
 
@@ -101,8 +119,8 @@ export async function processInitialAnalysisJob(
     if (artifacts !== null) {
       for (const artifact of artifacts) {
         await dependencies.database.query(
-          `INSERT INTO artifact ("applicationCaseId", type, "generatedContent", "sourceRunId", "createdAt", "updatedAt")
-           VALUES ($1, $2::"ArtifactType", $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          `INSERT INTO artifact (id, "applicationCaseId", type, "generatedContent", "sourceRunId", "createdAt", "updatedAt")
+           VALUES (concat('initial-', $4::text, '-', $2::text), $1, $2::"ArtifactType", $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
            ON CONFLICT ("applicationCaseId", type) DO NOTHING`,
           [job.applicationCaseId, artifact.type, artifact.generatedContent, job.analysisRunId],
         );
@@ -110,23 +128,25 @@ export async function processInitialAnalysisJob(
     }
 
     await dependencies.database.query(
-      `UPDATE analysis_run
-       SET status = 'SUCCEEDED', "currentStage" = NULL, "finalMarkdown" = $1,
-           "finishedAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
-       WHERE id = $2`,
-      [result.finalMarkdown, job.analysisRunId],
-    );
-    await dependencies.database.query(
-      `UPDATE application_case
-       SET status = 'ANALYSIS_READY', "currentStage" = 'ANALYSIS_READY', "updatedAt" = CURRENT_TIMESTAMP
-       WHERE id = $1`,
-      [job.applicationCaseId],
-    );
-    await dependencies.database.query(
-      `INSERT INTO stage_event (id, "applicationCaseId", "fromStage", "toStage", source, "createdAt")
-       VALUES (concat('system-', $1, '-analysis-ready'), $1, 'ANALYZING', 'ANALYSIS_READY', 'SYSTEM', CURRENT_TIMESTAMP)
+      `WITH completed_run AS (
+         UPDATE analysis_run
+         SET status = 'SUCCEEDED', "currentStage" = NULL, "finalMarkdown" = $1,
+             "errorCode" = NULL, "errorMessageSanitized" = NULL,
+             "finishedAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING "applicationCaseId"
+       ), completed_case AS (
+         UPDATE application_case AS application
+         SET status = 'ANALYSIS_READY', "currentStage" = 'ANALYSIS_READY', "updatedAt" = CURRENT_TIMESTAMP
+         FROM completed_run
+         WHERE application.id = completed_run."applicationCaseId"
+         RETURNING application.id
+       )
+       INSERT INTO stage_event (id, "applicationCaseId", "fromStage", "toStage", source, "createdAt")
+       SELECT concat('system-', id, '-analysis-ready'), id, 'ANALYZING', 'ANALYSIS_READY', 'SYSTEM', CURRENT_TIMESTAMP
+       FROM completed_case
        ON CONFLICT DO NOTHING`,
-      [job.applicationCaseId],
+      [result.finalMarkdown, job.analysisRunId],
     );
   } catch {
     // A persistence error after a completed workflow may be retried by PgBoss.
@@ -182,7 +202,7 @@ async function claimRun(
 ): Promise<ClaimedRun | null> {
   const result = await database.query<ClaimedRun>(
     `UPDATE analysis_run AS run
-     SET status = 'RUNNING', "currentStage" = 'analyst', "startedAt" = CURRENT_TIMESTAMP,
+     SET status = 'RUNNING', "currentStage" = COALESCE(run."currentStage", 'analyst'), "startedAt" = CURRENT_TIMESTAMP,
          "updatedAt" = CURRENT_TIMESTAMP
      FROM application_case AS application
      WHERE run.id = $1
@@ -192,7 +212,8 @@ async function claimRun(
        AND application.status = 'ANALYZING'
      RETURNING application."userId" AS "userId",
                application."resumeSanitizedText" AS "resumeSanitizedText",
-               application."vacancySanitizedText" AS "vacancySanitizedText"`,
+               application."vacancySanitizedText" AS "vacancySanitizedText",
+               run."finalMarkdown" AS "existingFinalMarkdown"`,
     [job.analysisRunId, job.applicationCaseId],
   );
 
@@ -204,14 +225,15 @@ async function markRunForRetryOrFailure(
   job: InitialAnalysisJobPayload,
   retryRemaining: boolean,
   terminalErrorCode: TerminalAnalysisErrorCode = 'WORKFLOW_FAILED',
+  retryErrorCode: 'WORKFLOW_RETRY' = 'WORKFLOW_RETRY',
 ): Promise<void> {
   if (retryRemaining) {
     await database.query(
       `UPDATE analysis_run
-       SET status = 'QUEUED', "currentStage" = NULL, "errorCode" = 'WORKFLOW_RETRY',
-           "errorMessageSanitized" = 'WORKFLOW_RETRY', "updatedAt" = CURRENT_TIMESTAMP
-       WHERE id = $1`,
-      [job.analysisRunId],
+       SET status = 'QUEUED', "errorCode" = $2,
+           "errorMessageSanitized" = $2, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE id = $1`,
+       [job.analysisRunId, retryErrorCode],
     );
     return;
   }
@@ -232,7 +254,7 @@ async function markRunForRetryOrFailure(
   );
   await database.query(
     `INSERT INTO stage_event (id, "applicationCaseId", "fromStage", "toStage", source, "createdAt")
-     VALUES (concat('system-', $1, '-failed'), $1, 'ANALYZING', 'FAILED', 'SYSTEM', CURRENT_TIMESTAMP)
+     VALUES (concat('system-', $1::text, '-failed'), $1, 'ANALYZING', 'FAILED', 'SYSTEM', CURRENT_TIMESTAMP)
      ON CONFLICT DO NOTHING`,
     [job.applicationCaseId],
   );
@@ -285,4 +307,12 @@ function getErrorStage(stepName: unknown): 'ANALYST' | 'PRODUCER' | 'CRITIC' | '
   if (stepName.startsWith('critic.')) return 'CRITIC';
   if (stepName === 'orchestrator.final') return 'FINAL';
   return undefined;
+}
+
+function isRetryableInitialAnalysisFailure(errorCode: TerminalAnalysisErrorCode): boolean {
+  return (
+    errorCode.endsWith('_TIMEOUT') ||
+    errorCode.endsWith('_NETWORK_ERROR') ||
+    errorCode === 'CRITIC_RESPONSE_INVALID'
+  );
 }

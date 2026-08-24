@@ -151,10 +151,19 @@ test("Critic contract rejects unexpected fields", () => {
 });
 
 test("Critic contract limits audit volume and field sizes", () => {
-  const tooManyClaims = Array.from({ length: 17 }, () => validClaimAuditEntry);
+  const tooManyClaims = Array.from({ length: 7 }, () => validClaimAuditEntry);
+  const tooManyIssues = Array.from({ length: 7 }, () => ({
+    category: 'Facts' as const,
+    severity: 'INFO' as const,
+    problem: 'A concise issue.',
+    reason: 'A concise reason.',
+    requiredAction: 'Review it.',
+    reference: 'Reference.',
+  }));
   const oversizedSummary = "x".repeat(1_501);
 
   assert.equal(criticResultSchema.safeParse(approvedResult({ claimAudit: tooManyClaims })).success, false);
+  assert.equal(criticResultSchema.safeParse(approvedResult({ issues: tooManyIssues })).success, false);
   assert.equal(criticResultSchema.safeParse(approvedResult({ summary: oversizedSummary })).success, false);
 });
 

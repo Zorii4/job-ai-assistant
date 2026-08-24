@@ -1,9 +1,10 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import OpenAI from "openai";
-import type { ResponseFormatJSONSchema } from "openai/resources/shared";
+import type { ReasoningEffort, ResponseFormatJSONSchema } from "openai/resources/shared";
 import { z } from "zod";
 import {
+  classifyLlmError,
   retryTransientRequest,
   type LlmAttemptMetrics
 } from "./retryTransientRequest.js";
@@ -23,6 +24,8 @@ export type CallLLMOptions = {
   model?: string;
   structuredOutput?: ResponseFormatJSONSchema;
   transientRetryMaxAttempts?: number;
+  providerMaxRetries?: number;
+  reasoningEffort?: ReasoningEffort;
   metrics?: LlmAttemptMetrics;
 };
 
@@ -95,7 +98,10 @@ export async function callLLM(
 
   const client = new OpenAI({
     baseURL: openAICompatibleBaseUrl,
-    apiKey
+    apiKey,
+    ...(options.providerMaxRetries === undefined
+      ? {}
+      : { maxRetries: options.providerMaxRetries })
   });
   return retryTransientRequest(
     async () => {
@@ -103,6 +109,7 @@ export async function callLLM(
         options.metrics.attemptCount += 1;
       }
       const abortController = new AbortController();
+      const requestStartedAt = Date.now();
       const timeout = options.timeoutMs
         ? setTimeout(() => abortController.abort(), options.timeoutMs)
         : undefined;
@@ -117,6 +124,7 @@ export async function callLLM(
             ],
             temperature: 0.2,
             max_tokens: options.maxOutputTokens,
+            ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
             ...(options.structuredOutput ? { response_format: options.structuredOutput } : {})
           },
           {
@@ -147,13 +155,15 @@ export async function callLLM(
           );
         }
 
+        logLlmAttempt('completed', selectedModel, openAICompatibleBaseUrl, requestStartedAt, response);
         return content;
       } catch (error) {
-        if (abortController.signal.aborted) {
-          throw new Error(`LLM step timed out after ${options.timeoutMs}ms.`);
-        }
+        const safeError = abortController.signal.aborted
+          ? new Error(`LLM step timed out after ${options.timeoutMs}ms.`)
+          : error;
 
-        throw error;
+        logLlmAttempt('failed', selectedModel, openAICompatibleBaseUrl, requestStartedAt, safeError);
+        throw safeError;
       } finally {
         if (timeout) {
           clearTimeout(timeout);
@@ -169,6 +179,73 @@ export async function callLLM(
       }
     }
   );
+}
+
+function logLlmAttempt(
+  outcome: 'completed' | 'failed',
+  selectedModel: string,
+  baseUrl: string,
+  startedAtMs: number,
+  responseOrError: unknown,
+): void {
+  const route = getSafeRoute(baseUrl);
+  const requestId = getSafeRequestId(responseOrError);
+  const diagnostics = {
+    model: selectedModel,
+    route,
+    durationMs: Date.now() - startedAtMs,
+    ...(requestId === undefined ? {} : { requestId }),
+  };
+
+  if (outcome === 'completed') {
+    console.info('[llm] completed request', diagnostics);
+    return;
+  }
+
+  console.warn('[llm] failed request', {
+    ...diagnostics,
+    errorCode: classifyLlmError(responseOrError),
+  });
+}
+
+function getSafeRoute(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).origin;
+  } catch {
+    return 'invalid-url';
+  }
+}
+
+function getSafeRequestId(value: unknown): string | undefined {
+  const directRequestId = getRecordString(value, '_request_id')
+    ?? getRecordString(value, 'request_id')
+    ?? getRecordString(value, 'requestId');
+  const response = getRecordValue(value, 'response');
+  const headers = getRecordValue(response, 'headers');
+  const headerRequestId = getHeaderValue(headers, 'x-request-id')
+    ?? getHeaderValue(headers, 'x-request_id');
+  const requestId = directRequestId ?? headerRequestId;
+
+  return requestId !== undefined && /^[A-Za-z0-9._:-]{1,128}$/.test(requestId)
+    ? requestId
+    : undefined;
+}
+
+function getHeaderValue(headers: unknown, key: string): string | undefined {
+  if (headers instanceof Headers) {
+    return headers.get(key) ?? undefined;
+  }
+
+  return getRecordString(headers, key) ?? getRecordString(headers, key.toLowerCase());
+}
+
+function getRecordValue(value: unknown, key: string): unknown {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[key] : undefined;
+}
+
+function getRecordString(value: unknown, key: string): string | undefined {
+  const candidate = getRecordValue(value, key);
+  return typeof candidate === 'string' ? candidate : undefined;
 }
 
 export async function callLLMJson<T>(
@@ -232,6 +309,8 @@ const aitunnelApiHost = "api.aitunnel.ru";
 const defaultStructuredOutputModels = [
   "deepseek-v4-flash",
   "deepseek/deepseek-v4-flash",
+  "deepseek-v4-flash-0731",
+  "deepseek/deepseek-v4-flash-0731",
   "gpt-oss-20b",
   "openai/gpt-oss-20b"
 ];

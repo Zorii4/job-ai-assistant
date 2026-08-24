@@ -88,9 +88,9 @@ export class JobsService implements OnModuleDestroy {
     await boss.start();
     await boss.createQueue(INITIAL_ANALYSIS_QUEUE, {
       retryLimit: 2,
-      retryDelay: 5,
+      retryDelay: 30,
       retryBackoff: true,
-      expireInSeconds: 900,
+      expireInSeconds: 1800,
     });
     await boss.createQueue(HR_PREPARATION_QUEUE, {
       retryLimit: 2,

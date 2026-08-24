@@ -409,7 +409,6 @@ test('requeues the owners failed analysis without creating a second run or doubl
       queueJobId: null,
       startedAt: null,
       finishedAt: null,
-      finalMarkdown: null,
       editedFinalMarkdown: null,
     },
     select: {

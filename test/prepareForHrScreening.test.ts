@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createPrepareForHrScreening } from '../src/app/prepareForHrScreening.js';
+import {
+  createHRPreparationLlmOptions,
+  createPrepareForHrScreening,
+  resolveHRPreparationMaxOutputTokens,
+} from '../src/app/prepareForHrScreening.js';
 
 const result = {
   schemaVersion: '1' as const,
@@ -12,6 +16,7 @@ const result = {
 };
 
 test('HR preparation makes one structured call with the three persisted snapshots', async () => {
+  let callCount = 0;
   let receivedSystemPrompt: string | undefined;
   let receivedUserPrompt: string | undefined;
   const prepareForHrScreening = createPrepareForHrScreening({
@@ -19,6 +24,7 @@ test('HR preparation makes one structured call with the three persisted snapshot
       return { systemPrompt: 'private prompt is injected in production', promptVersion: '1' };
     },
     async call(systemPrompt, userPrompt) {
+      callCount += 1;
       receivedSystemPrompt = systemPrompt;
       receivedUserPrompt = userPrompt;
       return { data: result };
@@ -31,6 +37,7 @@ test('HR preparation makes one structured call with the three persisted snapshot
     initialAnalysisFinalMarkdown: '# Initial analysis',
   });
 
+  assert.equal(callCount, 1);
   assert.equal(receivedSystemPrompt, 'private prompt is injected in production');
   assert.deepEqual(JSON.parse(receivedUserPrompt ?? ''), {
     schemaVersion: '1',
@@ -40,4 +47,19 @@ test('HR preparation makes one structured call with the three persisted snapshot
   });
   assert.equal(output.promptVersion, '1');
   assert.equal(output.result.items.length, 5);
+});
+
+test('HR preparation uses a 5000-token default and accepts an explicit positive limit', () => {
+  assert.equal(resolveHRPreparationMaxOutputTokens(undefined), 5_000);
+  assert.equal(resolveHRPreparationMaxOutputTokens('6500'), 6_500);
+  assert.equal(resolveHRPreparationMaxOutputTokens('invalid'), 5_000);
+});
+
+test('HR preparation disables both application and provider HTTP retries', () => {
+  assert.deepEqual(createHRPreparationLlmOptions('5000'), {
+    timeoutMs: 120_000,
+    maxOutputTokens: 5_000,
+    transientRetryMaxAttempts: 1,
+    providerMaxRetries: 0,
+  });
 });

@@ -46,12 +46,6 @@ export function getInitialWorkflowCheckpointFingerprint(
     stepTimeoutMs: config.stepTimeoutMs,
     totalTimeoutMs: config.totalTimeoutMs,
     llmMock: process.env.LLM_MOCK?.toLowerCase() === "true",
-    models: {
-      primary: process.env.LLM_MODEL ?? null,
-      analystFallback: process.env.LLM_ANALYST_FALLBACK_MODEL ?? null,
-      criticPrimary: process.env.LLM_CRITIC_MODEL ?? null,
-      criticFallback: process.env.LLM_CRITIC_FALLBACK_MODEL ?? null,
-    },
     promptHashes: Object.fromEntries(
       Object.entries(prompts).map(([name, value]) => [name, createHash("sha256").update(value).digest("hex")]),
     ),

@@ -27,7 +27,7 @@ before(() => {
 
 after(async () => {
   process.chdir(originalWorkingDirectory);
-  await rm(testWorkingDirectory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  await rm(testWorkingDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
 });
 
 test("Mock fast flow blocks final output when critical findings remain", async () => {
@@ -127,7 +127,7 @@ test("a compatible checkpoint retries Critic without rerunning Analyst or Produc
   assert.deepEqual(secondSteps, ["critic.v1"]);
 });
 
-test("a checkpoint is discarded when the model configuration changes", async () => {
+test("a model change preserves completed checkpoint stages", async () => {
   process.env.ANALYSIS_MODE = "fast";
   process.env.MAX_REVISION_CYCLES = "0";
   const previousModel = process.env.LLM_MODEL;
@@ -157,6 +157,11 @@ test("a checkpoint is discarded when the model configuration changes", async () 
   try {
     process.env.LLM_MODEL = "model-a";
     await assert.rejects(createAnalyzeJobApplication({ persistence: persistenceFor(firstSteps), createRunId: () => "model-run", checkpointStore })(input));
+    const saved = checkpoints.get("model-run");
+    assert.ok(saved !== undefined);
+    const checkpointWithoutCritic = { ...(saved.checkpoint as Record<string, unknown>) };
+    delete checkpointWithoutCritic.latestCriticResult;
+    checkpoints.set("model-run", { ...saved, checkpoint: checkpointWithoutCritic });
     process.env.LLM_MODEL = "model-b";
     await assert.rejects(createAnalyzeJobApplication({ persistence: persistenceFor(secondSteps), createRunId: () => "model-run", checkpointStore })(input));
   } finally {
@@ -164,7 +169,8 @@ test("a checkpoint is discarded when the model configuration changes", async () 
     else process.env.LLM_MODEL = previousModel;
   }
 
-  assert.deepEqual(secondSteps, ["analyst", "producer.v1", "critic.v1"]);
+  assert.deepEqual(firstSteps, ["analyst", "producer.v1", "critic.v1"]);
+  assert.deepEqual(secondSteps, ["critic.v1"]);
 });
 
 test("Mock revision flow stops after the third producer version", async () => {

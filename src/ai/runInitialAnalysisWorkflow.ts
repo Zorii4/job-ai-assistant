@@ -287,18 +287,18 @@ function createStepOptions(
 
 function getMaxOutputTokens(stepName: JobApplicationAgentName): number {
   if (stepName === "analyst") {
-    return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_ANALYST, 3500);
+    return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_ANALYST, 5_000);
   }
 
   if (stepName.startsWith("producer.")) {
-    return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_PRODUCER, 4500);
+    return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_PRODUCER, 5_000);
   }
 
   if (stepName.startsWith("critic.")) {
-    return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_CRITIC, 2200);
+    return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_CRITIC, 5_000);
   }
 
-  return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_ORCHESTRATOR_FINAL, 4500);
+  return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_ORCHESTRATOR_FINAL, 8_000);
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {

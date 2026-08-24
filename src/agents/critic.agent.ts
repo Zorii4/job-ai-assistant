@@ -87,7 +87,7 @@ export async function criticAgent(
     () => executeCritic(
       getCriticFallbackModel(),
       fallbackUserPrompt,
-      getFallbackOutputLimit(options.maxOutputTokens)
+      getFallbackOutputLimit()
     ),
     () => {
       llmMetrics.retryErrorCodes.push("LLM_TIMEOUT");
@@ -124,10 +124,11 @@ function getFallbackContextLimit(): number {
   return parsePositiveInteger(process.env.LLM_CRITIC_FALLBACK_CONTEXT_CHARS, 48_000);
 }
 
-function getFallbackOutputLimit(primaryLimit: number | undefined): number | undefined {
-  const fallbackLimit = parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_CRITIC_FALLBACK, 3_500);
-
-  return primaryLimit === undefined ? fallbackLimit : Math.min(primaryLimit, fallbackLimit);
+function getFallbackOutputLimit(): number {
+  // Reasoning-capable fallback models can use part of the output budget before
+  // emitting the required JSON. Do not inherit the primary compact limit here:
+  // an incomplete response can never satisfy the strict Critic contract.
+  return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_CRITIC_FALLBACK, 5_000);
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
