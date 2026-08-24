@@ -229,7 +229,6 @@ export class ApplicationsService {
             queueJobId: null,
             startedAt: null,
             finishedAt: null,
-            finalMarkdown: null,
             editedFinalMarkdown: null,
           },
           select: analysisRunSummarySelect,

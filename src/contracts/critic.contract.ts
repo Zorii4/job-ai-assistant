@@ -87,8 +87,8 @@ const claimAuditEntrySchema = z
 export const criticFindingsSchema = z
   .object({
     schemaVersion: z.literal(3),
-    issues: z.array(criticIssueSchema).max(12),
-    claimAudit: z.array(claimAuditEntrySchema).min(1).max(16),
+    issues: z.array(criticIssueSchema).max(6),
+    claimAudit: z.array(claimAuditEntrySchema).min(1).max(6),
     summary: z.string().min(1).max(1_500)
   })
   .strict();

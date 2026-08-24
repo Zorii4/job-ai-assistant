@@ -48,13 +48,13 @@ export async function processPostInterviewJob(
   try {
     await dependencies.database.query(
       `WITH post_interview_review AS (
-         INSERT INTO artifact ("applicationCaseId", type, "generatedContent", "sourceRunId", "createdAt", "updatedAt")
-         VALUES ($1, 'POST_INTERVIEW_REVIEW'::"ArtifactType", $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         INSERT INTO artifact (id, "applicationCaseId", type, "generatedContent", "sourceRunId", "createdAt", "updatedAt")
+         VALUES (concat('post-interview-review-', $3::text), $1, 'POST_INTERVIEW_REVIEW'::"ArtifactType", $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          ON CONFLICT ("applicationCaseId", type) DO NOTHING
        ),
        hr_closing_message AS (
-         INSERT INTO artifact ("applicationCaseId", type, "generatedContent", "sourceRunId", "createdAt", "updatedAt")
-         VALUES ($1, 'HR_CLOSING_MESSAGE'::"ArtifactType", $4, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         INSERT INTO artifact (id, "applicationCaseId", type, "generatedContent", "sourceRunId", "createdAt", "updatedAt")
+         VALUES (concat('hr-closing-message-', $3::text), $1, 'HR_CLOSING_MESSAGE'::"ArtifactType", $4, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          ON CONFLICT ("applicationCaseId", type) DO NOTHING
        )
        UPDATE analysis_run
@@ -66,7 +66,7 @@ export async function processPostInterviewJob(
         output.result.analysisMarkdown,
         job.analysisRunId,
         output.result.hrClosingMessage,
-        process.env.LLM_MODEL ?? null,
+        process.env.LLM_POST_INTERVIEW_MODEL?.trim() || 'deepseek-v4-flash-0731',
         output.promptVersion,
       ],
     );

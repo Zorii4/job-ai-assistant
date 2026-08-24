@@ -37,6 +37,12 @@ test("accepts the configured AITUNNEL DeepSeek V4 Flash structured-output route"
   );
 });
 
+test("accepts the pinned AITUNNEL DeepSeek V4 Flash 0731 post-interview route", () => {
+  assert.doesNotThrow(() =>
+    assertStructuredOutputCapability("https://api.aitunnel.ru/v1/", "deepseek-v4-flash-0731")
+  );
+});
+
 test("accepts the configured AITUNNEL GPT OSS 20b fallback route", () => {
   assert.doesNotThrow(() =>
     assertStructuredOutputCapability("https://api.aitunnel.ru/v1/", "gpt-oss-20b")

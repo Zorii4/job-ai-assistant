@@ -50,7 +50,10 @@ test('loads only permitted saved inputs and atomically persists both post-interv
   assert.equal(queries[0]?.text.includes('resumeSanitizedText'), false);
   assert.equal(queries.some((query) => query.text.includes("'POST_INTERVIEW_REVIEW'")), true);
   assert.equal(queries.some((query) => query.text.includes("'HR_CLOSING_MESSAGE'")), true);
+  assert.equal(queries.some((query) => query.text.includes('INSERT INTO artifact (id,')), true);
   assert.equal(queries.some((query) => query.text.includes("SET status = 'SUCCEEDED'")), true);
+  const successQuery = queries.find((query) => query.text.includes("SET status = 'SUCCEEDED'"));
+  assert.equal(successQuery?.values.includes('deepseek-v4-flash-0731'), true);
 });
 
 test('stores a safe terminal error without persisting the raw LLM error', async () => {

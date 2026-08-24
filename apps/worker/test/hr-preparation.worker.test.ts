@@ -52,10 +52,14 @@ test('loads only saved snapshots and persists one HR preparation artifact', asyn
   assert.equal(queries[0]?.text.includes('"vacancySanitizedText"'), true);
   assert.equal(queries[0]?.text.includes('"finalMarkdown"'), true);
   assert.equal(queries[0]?.text.includes('sourceText'), false);
-  assert.equal(queries.some((query) => query.text.includes("'HR_SCREENING_PREPARATION'")), true);
-  assert.equal(queries.some((query) => query.text.includes("SET status = 'SUCCEEDED'") && query.values.includes('1')), true);
-  assert.equal(queries.some((query) => query.text.includes("SET status = 'HR_PREPARATION_READY'")), true);
-  assert.equal(queries.some((query) => query.text.includes('INSERT INTO stage_event')), true);
+  assert.equal(queries.length, 2);
+  const persistenceQuery = queries[1];
+  assert.equal(persistenceQuery?.text.includes("'HR_SCREENING_PREPARATION'"), true);
+  assert.equal(persistenceQuery?.text.includes('INSERT INTO artifact (id,'), true);
+  assert.equal(persistenceQuery?.text.includes("SET status = 'SUCCEEDED'"), true);
+  assert.equal(persistenceQuery?.text.includes("SET status = 'HR_PREPARATION_READY'"), true);
+  assert.equal(persistenceQuery?.text.includes('INSERT INTO stage_event'), true);
+  assert.equal(persistenceQuery?.values.includes('1'), true);
 });
 
 test('does not run HR preparation unless an invited case has a successful initial analysis', async () => {

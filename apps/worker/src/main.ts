@@ -60,9 +60,9 @@ export async function startWorker(): Promise<void> {
   await boss.start();
   await boss.createQueue(queueName, {
     retryLimit: 2,
-    retryDelay: 5,
+    retryDelay: 30,
     retryBackoff: true,
-    expireInSeconds: 900,
+    expireInSeconds: 1800,
   });
   await boss.createQueue(hrPreparationQueueName, {
     retryLimit: 2,
@@ -85,6 +85,22 @@ export async function startWorker(): Promise<void> {
   const legacyWorkflow = await loadLegacyWorkflow();
   const hrPreparationWorkflow = await loadHRPreparationWorkflow();
   const postInterviewWorkflow = await loadPostInterviewWorkflow();
+
+  const completedInitialAnalysisRuns = await recoverCompletedInitialAnalysisRuns(database);
+  for (const payload of completedInitialAnalysisRuns) {
+    const runInitialAnalysis = legacyWorkflow.createAnalyzeJobApplication({
+      persistence: createDatabasePersistence(database, payload.analysisRunId),
+      createRunId: () => payload.analysisRunId,
+      checkpointStore: createDatabaseCheckpointStore(database),
+    });
+
+    await processInitialAnalysisJob(payload, {
+      database,
+      runInitialAnalysis,
+      retryRemaining: false,
+    });
+  }
+
   await boss.work<InitialAnalysisJobPayload, void, typeof initialAnalysisWorkerOptions>(
     queueName,
     initialAnalysisWorkerOptions,
@@ -190,6 +206,40 @@ export async function recoverInterruptedInitialAnalysisRuns(
        AND run.status = 'RUNNING'
        AND application.id = run."applicationCaseId"
        AND application.status = 'ANALYZING'
+     RETURNING run."applicationCaseId" AS "applicationCaseId", run.id AS "analysisRunId"`,
+  );
+
+  return result.rows.map((row) => InitialAnalysisJobPayloadSchema.parse(row));
+}
+
+export async function recoverCompletedInitialAnalysisRuns(
+  database: Pick<Pool, 'query'>,
+): Promise<InitialAnalysisJobPayload[]> {
+  const result = await database.query<InitialAnalysisJobPayload>(
+    `WITH recoverable AS (
+       SELECT run.id AS "analysisRunId", run."applicationCaseId" AS "applicationCaseId"
+       FROM analysis_run AS run
+       JOIN application_case AS application ON application.id = run."applicationCaseId"
+       WHERE run."workflowType" = 'INITIAL_ANALYSIS'
+         AND run.status IN ('FAILED', 'QUEUED')
+         AND run."finalMarkdown" IS NOT NULL
+         AND length(run."finalMarkdown") > 0
+         AND application.status IN ('FAILED', 'ANALYZING', 'ANALYSIS_READY')
+       FOR UPDATE OF run, application
+     ), restored_cases AS (
+       UPDATE application_case AS application
+       SET status = 'ANALYZING', "currentStage" = 'ANALYZING', "updatedAt" = CURRENT_TIMESTAMP
+       FROM recoverable
+       WHERE application.id = recoverable."applicationCaseId"
+       RETURNING application.id
+     )
+     UPDATE analysis_run AS run
+     SET status = 'QUEUED', "currentStage" = 'final', "errorCode" = NULL,
+         "errorMessageSanitized" = NULL, "finishedAt" = NULL,
+         "updatedAt" = CURRENT_TIMESTAMP
+     FROM recoverable
+     JOIN restored_cases ON restored_cases.id = recoverable."applicationCaseId"
+     WHERE run.id = recoverable."analysisRunId"
      RETURNING run."applicationCaseId" AS "applicationCaseId", run.id AS "analysisRunId"`,
   );
 
