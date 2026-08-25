@@ -67,18 +67,9 @@ enum VacancySourceType {
 }
 
 enum ApplicationCaseStatus {
-  DRAFT
-  ANALYZING
-  ANALYSIS_READY
-  APPLIED
-  WAITING_RESPONSE
-  HR_INVITED
-  HR_PREPARATION_READY
-  HR_COMPLETED
+  IN_PROGRESS
   REJECTED
   OFFER
-  ARCHIVED
-  FAILED
 }
 
 enum StageEventSource {
@@ -97,8 +88,8 @@ model ApplicationCase {
   vacancySourceText    String
   vacancySanitizedText String
   resumeSanitizedText  String
-  status               ApplicationCaseStatus @default(DRAFT)
-  currentStage         String                @default("DRAFT")
+  status               ApplicationCaseStatus @default(IN_PROGRESS)
+  currentStage         String                @default("IN_PROGRESS")
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)

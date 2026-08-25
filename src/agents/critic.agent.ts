@@ -128,7 +128,7 @@ function getFallbackOutputLimit(): number {
   // Reasoning-capable fallback models can use part of the output budget before
   // emitting the required JSON. Do not inherit the primary compact limit here:
   // an incomplete response can never satisfy the strict Critic contract.
-  return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_CRITIC_FALLBACK, 5_000);
+  return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_CRITIC_FALLBACK, 10_000);
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {

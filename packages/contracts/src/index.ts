@@ -24,6 +24,7 @@ export const ApiErrorCodeSchema = z.enum([
   'PAYLOAD_TOO_LARGE',
   'RESUME_LIMIT_REACHED',
   'ANALYSIS_QUOTA_EXCEEDED',
+  'MANUAL_RETRY_LIMIT_REACHED',
   'INTERNAL_ERROR',
 ]);
 
@@ -104,18 +105,9 @@ export const ResumeDetailResponseSchema = z
 
 export const VacancySourceTypeSchema = z.literal('FILE');
 export const ApplicationCaseStatusSchema = z.enum([
-  'DRAFT',
-  'ANALYZING',
-  'ANALYSIS_READY',
-  'APPLIED',
-  'WAITING_RESPONSE',
-  'HR_INVITED',
-  'HR_PREPARATION_READY',
-  'HR_COMPLETED',
+  'IN_PROGRESS',
   'REJECTED',
   'OFFER',
-  'ARCHIVED',
-  'FAILED',
 ]);
 
 export type ApplicationCaseStatus = z.infer<typeof ApplicationCaseStatusSchema>;
@@ -137,7 +129,7 @@ export const ApplicationCaseSummarySchema = z
     resumeId: z.string().min(1),
     vacancySourceType: VacancySourceTypeSchema,
     status: ApplicationCaseStatusSchema,
-    currentStage: z.literal('DRAFT'),
+    currentStage: z.literal('IN_PROGRESS'),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -154,6 +146,7 @@ export const ApplicationCaseResponseSchema = z
 
 export const AnalysisRunStatusSchema = z.enum(['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED']);
 export const AnalysisWorkflowTypeSchema = z.enum(['INITIAL_ANALYSIS', 'HR_PREPARATION', 'POST_INTERVIEW']);
+export const ManualRetryLimit = 3;
 
 export const AnalysisRunSummarySchema = z
   .object({
@@ -163,6 +156,7 @@ export const AnalysisRunSummarySchema = z
     status: AnalysisRunStatusSchema,
     currentStage: z.string().min(1).nullable(),
     errorCode: z.string().min(1).max(128).nullable(),
+    manualRetryCount: z.number().int().min(0).max(ManualRetryLimit),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })

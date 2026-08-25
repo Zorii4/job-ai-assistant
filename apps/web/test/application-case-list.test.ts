@@ -7,46 +7,46 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ApplicationCaseList } from '../src/features/applications/ApplicationCaseList.js';
 
 const updatedAt = '2026-08-13T12:00:00.000Z';
+const callbacks = {
+  onOpenAnalysis: () => undefined,
+  onRetryAnalysis: () => undefined,
+  onUpdateStatus: () => undefined,
+  onDelete: () => undefined,
+};
 
-test('renders server-restored active, completed and failed analysis snapshots', () => {
-  const markup = renderToStaticMarkup(
-    createElement(ApplicationCaseList, {
-      applicationCases: [
-        { id: 'application-queued', title: 'Queued role', status: 'ANALYZING', currentStage: 'ANALYZING', createdAt: updatedAt, updatedAt, analysisRun: { id: 'run-queued', applicationCaseId: 'application-queued', workflowType: 'INITIAL_ANALYSIS', status: 'QUEUED', currentStage: null, errorCode: null, createdAt: updatedAt, updatedAt }, hrPreparationRun: null, postInterviewRun: null },
-        { id: 'application-ready', title: 'Ready role', status: 'ANALYSIS_READY', currentStage: 'ANALYSIS_READY', createdAt: updatedAt, updatedAt, analysisRun: { id: 'run-ready', applicationCaseId: 'application-ready', workflowType: 'INITIAL_ANALYSIS', status: 'SUCCEEDED', currentStage: null, errorCode: null, createdAt: updatedAt, updatedAt }, hrPreparationRun: null, postInterviewRun: null },
-        { id: 'application-hr', title: 'HR role', status: 'HR_INVITED', currentStage: 'HR_INVITED', createdAt: updatedAt, updatedAt, analysisRun: { id: 'run-hr-initial', applicationCaseId: 'application-hr', workflowType: 'INITIAL_ANALYSIS', status: 'SUCCEEDED', currentStage: null, errorCode: null, createdAt: updatedAt, updatedAt }, hrPreparationRun: null, postInterviewRun: null },
-        { id: 'application-hr-ready', title: 'HR ready role', status: 'HR_PREPARATION_READY', currentStage: 'HR_PREPARATION_READY', createdAt: updatedAt, updatedAt, analysisRun: { id: 'run-hr-ready-initial', applicationCaseId: 'application-hr-ready', workflowType: 'INITIAL_ANALYSIS', status: 'SUCCEEDED', currentStage: null, errorCode: null, createdAt: updatedAt, updatedAt }, hrPreparationRun: { id: 'run-hr-ready', applicationCaseId: 'application-hr-ready', workflowType: 'HR_PREPARATION', status: 'SUCCEEDED', currentStage: null, errorCode: null, createdAt: updatedAt, updatedAt }, postInterviewRun: null },
-        { id: 'application-failed', title: 'Failed role', status: 'FAILED', currentStage: 'FAILED', createdAt: updatedAt, updatedAt, analysisRun: { id: 'run-failed', applicationCaseId: 'application-failed', workflowType: 'INITIAL_ANALYSIS', status: 'FAILED', currentStage: null, errorCode: 'ANALYST_RESPONSE_INVALID', createdAt: updatedAt, updatedAt }, hrPreparationRun: null, postInterviewRun: null },
-      ],
-      onOpenAnalysis: () => undefined,
-      onRetryAnalysis: () => undefined,
-      onLaunchHrPreparation: () => undefined,
-      onUpdateStage: () => undefined,
-      retryingApplicationCaseId: null,
-      preparingHrApplicationCaseId: null,
-      updatingApplicationCaseId: null,
-    }),
-  );
+test('shows only queued and running initial analyses on the analysis page', () => {
+  const markup = renderToStaticMarkup(createElement(ApplicationCaseList, {
+    applicationCases: [
+      { id: 'queued', title: 'Queued role', status: 'IN_PROGRESS', currentStage: 'IN_PROGRESS', createdAt: updatedAt, updatedAt, analysisRun: { id: 'run-queued', applicationCaseId: 'queued', workflowType: 'INITIAL_ANALYSIS', status: 'QUEUED', currentStage: null, errorCode: null, manualRetryCount: 0, createdAt: updatedAt, updatedAt }, hrPreparationRun: null, postInterviewRun: null },
+      { id: 'ready', title: 'Ready role', status: 'OFFER', currentStage: 'IN_PROGRESS', createdAt: updatedAt, updatedAt, analysisRun: { id: 'run-ready', applicationCaseId: 'ready', workflowType: 'INITIAL_ANALYSIS', status: 'SUCCEEDED', currentStage: null, errorCode: null, manualRetryCount: 0, createdAt: updatedAt, updatedAt }, hrPreparationRun: null, postInterviewRun: null },
+    ],
+    scope: 'active',
+    ...callbacks,
+  }));
 
-  assert.match(markup, /В процессе/);
-  assert.match(markup, /Готовые результаты/);
-  assert.match(markup, /Другие вакансии/);
+  assert.match(markup, /Анализы в работе/);
   assert.match(markup, /Queued role/);
-  assert.match(markup, /Ready role/);
-  assert.match(markup, /HR role/);
-  assert.match(markup, /HR ready role/);
+  assert.doesNotMatch(markup, /Ready role/);
+  assert.doesNotMatch(markup, /Фильтр статуса вакансии/);
+});
+
+test('keeps every case in history and exposes only the three user-facing states', () => {
+  const markup = renderToStaticMarkup(createElement(ApplicationCaseList, {
+    applicationCases: [
+      { id: 'failed', title: 'Failed role', status: 'IN_PROGRESS', currentStage: 'IN_PROGRESS', createdAt: updatedAt, updatedAt, analysisRun: { id: 'run-failed', applicationCaseId: 'failed', workflowType: 'INITIAL_ANALYSIS', status: 'FAILED', currentStage: null, errorCode: 'ANALYST_RESPONSE_INVALID', manualRetryCount: 0, createdAt: updatedAt, updatedAt }, hrPreparationRun: null, postInterviewRun: null },
+      { id: 'offer', title: 'Offer role', status: 'OFFER', currentStage: 'IN_PROGRESS', createdAt: updatedAt, updatedAt, analysisRun: { id: 'run-offer', applicationCaseId: 'offer', workflowType: 'INITIAL_ANALYSIS', status: 'SUCCEEDED', currentStage: null, errorCode: null, manualRetryCount: 0, createdAt: updatedAt, updatedAt }, hrPreparationRun: null, postInterviewRun: null },
+    ],
+    scope: 'history',
+    ...callbacks,
+  }));
+
   assert.match(markup, /Failed role/);
-  assert.match(markup, /К результату/);
-  assert.match(markup, /Сбой на этапе анализа соответствия/);
+  assert.match(markup, /Offer role/);
   assert.match(markup, /Повторить анализ/);
-  assert.match(markup, /Идёт первоначальный анализ/);
-  assert.match(markup, /Анализ готов/);
-  assert.match(markup, /Анализ требует внимания/);
-  assert.match(markup, /Создано:/);
-  assert.match(markup, /Обновлено:/);
-  assert.match(markup, /Отклик отправлен/);
-  assert.match(markup, /Подготовиться к HR/);
-  assert.match(markup, /Открыть подготовку/);
-  assert.match(markup, /Фильтр статуса/);
-  assert.match(markup, /Изменить статус/);
+  assert.match(markup, /Фильтр статуса вакансии/);
+  assert.match(markup, /В процессе/);
+  assert.match(markup, /Отказ/);
+  assert.match(markup, /Оффер/);
+  assert.doesNotMatch(markup, /Архивировать/);
+  assert.doesNotMatch(markup, /Изменить статус/);
 });

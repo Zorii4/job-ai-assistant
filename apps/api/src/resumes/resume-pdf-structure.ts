@@ -56,8 +56,26 @@ export function normalizePdfTextItemsToMarkdown(items: PdfTextItem[]): string {
     currentLine.items.push(item);
   }
 
-  return lines
-    .map((line) => line.items.sort((left, right) => left.x - right.x).map((item) => item.text).join(' ').replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .join('\n\n');
+  const extractedLines = lines
+    .map((line) => ({
+      pageNumber: line.pageNumber,
+      y: line.y,
+      text: line.items.sort((left, right) => left.x - right.x).map((item) => item.text).join(' ').replace(/\s+/g, ' ').trim(),
+    }))
+    .filter((line) => line.text.length > 0);
+  const lineGaps = extractedLines.slice(1)
+    .map((line, index) => extractedLines[index].pageNumber === line.pageNumber ? extractedLines[index].y - line.y : 0)
+    .filter((gap) => gap > 0)
+    .sort((left, right) => left - right);
+  const typicalLineGap = lineGaps[Math.floor(lineGaps.length / 2)] ?? 0;
+
+  return extractedLines.reduce((text, line, index) => {
+    if (index === 0) return line.text;
+
+    const previousLine = extractedLines[index - 1];
+    const startsNewParagraph = previousLine.pageNumber !== line.pageNumber ||
+      (typicalLineGap > 0 && previousLine.y - line.y > typicalLineGap * 1.5);
+
+    return `${text}${startsNewParagraph ? '\n\n' : ' '}${line.text}`;
+  }, '');
 }

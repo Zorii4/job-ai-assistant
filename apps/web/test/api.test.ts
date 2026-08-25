@@ -172,8 +172,8 @@ test('loads server-owned vacancy snapshots with their analysis runs', async (t) 
       applicationCases: [{
         id: 'application_1',
         title: 'Backend developer',
-        status: 'ANALYZING',
-        currentStage: 'ANALYZING',
+        status: 'IN_PROGRESS',
+        currentStage: 'IN_PROGRESS',
         createdAt: '2026-08-13T12:00:00.000Z',
         updatedAt: '2026-08-13T12:00:00.000Z',
         analysisRun: {
@@ -183,6 +183,7 @@ test('loads server-owned vacancy snapshots with their analysis runs', async (t) 
           status: 'RUNNING',
           currentStage: 'producer',
           errorCode: null,
+          manualRetryCount: 0,
           createdAt: '2026-08-13T12:00:00.000Z',
           updatedAt: '2026-08-13T12:00:00.000Z',
         },
@@ -207,7 +208,7 @@ test('launches HR preparation with session cookies', async (t) => {
       schemaVersion: API_SCHEMA_VERSION,
       analysisRun: {
         id: 'run_hr_1', applicationCaseId: 'application_1', workflowType: 'HR_PREPARATION', status: 'QUEUED',
-        currentStage: null, errorCode: null, createdAt: '2026-08-20T12:00:00.000Z', updatedAt: '2026-08-20T12:00:00.000Z',
+        currentStage: null, errorCode: null, manualRetryCount: 0, createdAt: '2026-08-20T12:00:00.000Z', updatedAt: '2026-08-20T12:00:00.000Z',
       },
     });
   };
@@ -223,11 +224,11 @@ test('updates a vacancy stage with session cookies', async (t) => {
     assert.equal(input, 'http://api.test/applications/application_1/stage');
     assert.equal(init?.method, 'PATCH');
     assert.equal(init?.credentials, 'include');
-    assert.equal(init?.body, JSON.stringify({ status: 'APPLIED' }));
+    assert.equal(init?.body, JSON.stringify({ status: 'REJECTED' }));
     return Response.json({ schemaVersion: API_SCHEMA_VERSION });
   };
 
-  await updateApplicationCaseStage('http://api.test', 'application_1', 'APPLIED');
+  await updateApplicationCaseStage('http://api.test', 'application_1', 'REJECTED');
 });
 
 test('saves and resets the independently edited full report', async (t) => {

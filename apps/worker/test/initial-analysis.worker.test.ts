@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { extractInitialArtifacts, processInitialAnalysisJob } from '../src/initial-analysis.worker.js';
+import {
+  extractInitialArtifacts,
+  processInitialAnalysisJob,
+  removeUngroundedCandidateIdentity,
+} from '../src/initial-analysis.worker.js';
 import { recoverCompletedInitialAnalysisRuns, recoverInterruptedInitialAnalysisRuns } from '../src/main.js';
 
 test('extracts the complete known material set from final markdown', () => {
@@ -35,6 +39,35 @@ test('extracts the complete known material set from final markdown', () => {
 
 test('falls back to the full report when a known material section is absent', () => {
   assert.equal(extractInitialArtifacts('### Блоки для резюме\n\n- Усилить опыт'), null);
+});
+
+test('removes invented candidate identities from the recruiter message only', () => {
+  const markdown = [
+    '### Готовые тексты',
+    '',
+    '#### Сообщение рекрутеру',
+    '',
+    'Здравствуйте! Меня зовут Сергей Зайцев. Я Frontend-разработчик с опытом Vue.',
+    '',
+    '#### Follow-up',
+    '',
+    'Добрый день!',
+  ].join('\n');
+
+  assert.equal(
+    removeUngroundedCandidateIdentity(markdown),
+    [
+      '### Готовые тексты',
+      '',
+      '#### Сообщение рекрутеру',
+      '',
+      'Здравствуйте! Я Frontend-разработчик с опытом Vue.',
+      '',
+      '#### Follow-up',
+      '',
+      'Добрый день!',
+    ].join('\n'),
+  );
 });
 
 test('loads only sanitized snapshots from the database before running initial analysis', async () => {
@@ -90,8 +123,8 @@ test('loads only sanitized snapshots from the database before running initial an
   assert.equal(queries[0]?.values[0], 'run-1');
   assert.equal(queries.some((query) => query.values[0] === 'producer' && query.values[1] === 'run-1'), true);
   assert.equal(queries.some((query) => query.text.includes("SET status = 'SUCCEEDED'") && query.values[1] === 'run-1'), true);
-  assert.equal(queries.some((query) => query.text.includes("SET status = 'ANALYSIS_READY'") && query.values[1] === 'run-1'), true);
-  assert.equal(queries.some((query) => query.text.includes('WITH completed_run AS')), true);
+  assert.equal(queries.some((query) => query.text.includes("SET status = 'ANALYSIS_READY'")), false);
+  assert.equal(queries.some((query) => query.text.includes('WITH completed_run AS')), false);
 });
 
 test('finalizes an already generated report without calling the LLM again', async () => {
@@ -133,7 +166,7 @@ test('finalizes an already generated report without calling the LLM again', asyn
     queries.some((query) => query.text.includes("SET status = 'SUCCEEDED'") && query.values[0] === '# Completed report'),
     true,
   );
-  assert.equal(queries.some((query) => query.text.includes("SET status = 'ANALYSIS_READY'")), true);
+  assert.equal(queries.some((query) => query.text.includes("SET status = 'ANALYSIS_READY'")), false);
 });
 
 test('marks a workflow failure terminally without storing raw errors or requeuing the full analysis', async () => {
@@ -173,8 +206,8 @@ test('marks a workflow failure terminally without storing raw errors or requeuin
   assert.equal(queries.some((query) => query.values.includes('private provider error')), false);
   assert.equal(queries.some((query) => query.values.includes('WORKFLOW_RETRY')), false);
   assert.equal(queries.some((query) => query.values[0] === 'run-1' && query.values[1] === 'ANALYST_RESPONSE_INVALID'), true);
-  assert.equal(queries.some((query) => query.text.includes("SET status = 'FAILED'") && query.values[0] === 'application-1'), true);
-  assert.equal(queries.some((query) => query.text.includes('INSERT INTO stage_event') && query.values[0] === 'application-1'), true);
+  assert.equal(queries.some((query) => query.text.includes('UPDATE application_case') && query.text.includes("SET status = 'FAILED'")), false);
+  assert.equal(queries.some((query) => query.text.includes('INSERT INTO stage_event') && query.values[0] === 'application-1'), false);
   assert.equal(queries.some((query) => query.text.includes('initialAnalysisUnitsUsed') && query.values[0] === 'application-1'), true);
 });
 
@@ -278,7 +311,7 @@ test('allows PgBoss to retry a persistence error after a completed workflow', as
         };
       }
 
-      if (text.includes('WITH completed_run AS')) {
+      if (text.includes("SET status = 'SUCCEEDED'")) {
         throw new Error('database write failed');
       }
 
@@ -373,6 +406,6 @@ test('recovers completed reports that failed only during result persistence', as
   assert.deepEqual(recovered, [{ applicationCaseId: 'application-1', analysisRunId: 'run-1' }]);
   assert.match(queries[0]?.text ?? '', /"finalMarkdown" IS NOT NULL/);
   assert.match(queries[0]?.text ?? '', /status IN \('FAILED', 'QUEUED'\)/);
-  assert.match(queries[0]?.text ?? '', /'ANALYSIS_READY'/);
+  assert.match(queries[0]?.text ?? '', /application\.status = 'IN_PROGRESS'/);
   assert.match(queries[0]?.text ?? '', /SET status = 'QUEUED', "currentStage" = 'final'/);
 });

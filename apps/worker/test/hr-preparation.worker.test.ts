@@ -57,8 +57,8 @@ test('loads only saved snapshots and persists one HR preparation artifact', asyn
   assert.equal(persistenceQuery?.text.includes("'HR_SCREENING_PREPARATION'"), true);
   assert.equal(persistenceQuery?.text.includes('INSERT INTO artifact (id,'), true);
   assert.equal(persistenceQuery?.text.includes("SET status = 'SUCCEEDED'"), true);
-  assert.equal(persistenceQuery?.text.includes("SET status = 'HR_PREPARATION_READY'"), true);
-  assert.equal(persistenceQuery?.text.includes('INSERT INTO stage_event'), true);
+  assert.equal(persistenceQuery?.text.includes("SET status = 'HR_PREPARATION_READY'"), false);
+  assert.equal(persistenceQuery?.text.includes('INSERT INTO stage_event'), false);
   assert.equal(persistenceQuery?.values.includes('1'), true);
 });
 
