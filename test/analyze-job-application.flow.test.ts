@@ -3,10 +3,7 @@ import { after, before, test } from "node:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  WebAnalysisWorkflowError,
-  type AnalyzeJobApplicationProgressEvent
-} from "../src/types/jobApplication.js";
+import { type AnalyzeJobApplicationProgressEvent } from "../src/types/jobApplication.js";
 import type { AnalysisRunPersistence } from "../src/app/ports/analysisRunPersistence.js";
 
 const originalWorkingDirectory = process.cwd();
@@ -30,59 +27,54 @@ after(async () => {
   await rm(testWorkingDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
 });
 
-test("Mock fast flow blocks final output when critical findings remain", async () => {
+test("Mock fast flow publishes the last Producer version when critical findings remain", async () => {
   process.env.ANALYSIS_MODE = "fast";
   process.env.MAX_REVISION_CYCLES = "2";
   const progressEvents: AnalyzeJobApplicationProgressEvent[] = [];
 
-  await assert.rejects(
-    analyzeJobApplication({
-      resumeText: "Candidate has product delivery experience.",
-      vacancyText: "The role requires product delivery and collaboration.",
-      source: "cli",
-      onProgress: (event) => {
-        progressEvents.push(event);
-      }
-    }),
-    /Critical Critic findings remain/
-  );
+  const result = await analyzeJobApplication({
+    resumeText: "Candidate has product delivery experience.",
+    vacancyText: "The role requires product delivery and collaboration.",
+    source: "cli",
+    onProgress: (event) => {
+      progressEvents.push(event);
+    }
+  });
+
+  assert.equal(result.meta.finalDecision, "NEEDS_REVISION");
+  assert.match(result.finalMarkdown, /Mock response/);
 
   assert.deepEqual(
     progressEvents,
     [
       { stage: "analyst", stepName: "analyst" },
       { stage: "producer", stepName: "producer.v1" },
-      { stage: "critic", stepName: "critic.v1" }
+      { stage: "critic", stepName: "critic.v1" },
+      { stage: "final", stepName: "orchestrator.final" }
     ]
   );
 });
 
-test("web flow exposes only a safe structured workflow failure", async () => {
+test("web flow publishes the last safe draft after the revision limit", async () => {
   process.env.ANALYSIS_MODE = "fast";
   process.env.MAX_REVISION_CYCLES = "2";
 
-  await assert.rejects(
-    analyzeJobApplication({
-      resumeText: "Candidate has product delivery experience.",
-      vacancyText: "The role requires product delivery and collaboration.",
-      source: "web"
-    }),
-    (error) => {
-      assert.ok(error instanceof WebAnalysisWorkflowError);
-      assert.equal(error.llmErrorCode, "LLM_UNKNOWN_ERROR");
-      assert.equal(error.stepName, "critic.v1");
-      assert.equal(error.message, "LLM_UNKNOWN_ERROR");
-      return true;
-    }
-  );
+  const result = await analyzeJobApplication({
+    resumeText: "Candidate has product delivery experience.",
+    vacancyText: "The role requires product delivery and collaboration.",
+    source: "web"
+  });
+
+  assert.equal(result.meta.finalDecision, "NEEDS_REVISION");
+  assert.match(result.finalMarkdown, /Mock response/);
 });
 
-test("a compatible checkpoint retries Critic without rerunning Analyst or Producer", async () => {
+test("publishing the last Producer version clears its workflow checkpoint", async () => {
   process.env.ANALYSIS_MODE = "fast";
   process.env.MAX_REVISION_CYCLES = "0";
   const checkpoints = new Map<string, { fingerprint: string; checkpoint: unknown }>();
   const firstSteps: string[] = [];
-  const secondSteps: string[] = [];
+  const clearedRunIds: string[] = [];
   const persistenceFor = (steps: string[]): AnalysisRunPersistence => ({
     async initializeRun() {},
     async saveStepOutput(_runId, step) { steps.push(step.agentName); },
@@ -95,58 +87,10 @@ test("a compatible checkpoint retries Critic without rerunning Analyst or Produc
     async save(runId: string, fingerprint: string, checkpoint: unknown) {
       checkpoints.set(runId, { fingerprint, checkpoint });
     },
-    async clear(runId: string) { checkpoints.delete(runId); },
-  };
-  const input = {
-    resumeText: "Candidate has product delivery experience.",
-    vacancyText: "The role requires product delivery and collaboration.",
-    source: "web" as const,
-  };
-
-  await assert.rejects(
-    createAnalyzeJobApplication({
-      persistence: persistenceFor(firstSteps),
-      createRunId: () => "checkpoint-run",
-      checkpointStore,
-    })(input),
-  );
-  const saved = checkpoints.get("checkpoint-run");
-  assert.ok(saved !== undefined);
-  const checkpointWithoutCritic = { ...(saved.checkpoint as Record<string, unknown>) };
-  delete checkpointWithoutCritic.latestCriticResult;
-  checkpoints.set("checkpoint-run", { ...saved, checkpoint: checkpointWithoutCritic });
-  await assert.rejects(
-    createAnalyzeJobApplication({
-      persistence: persistenceFor(secondSteps),
-      createRunId: () => "checkpoint-run",
-      checkpointStore,
-    })(input),
-  );
-
-  assert.deepEqual(firstSteps, ["analyst", "producer.v1", "critic.v1"]);
-  assert.deepEqual(secondSteps, ["critic.v1"]);
-});
-
-test("a model change preserves completed checkpoint stages", async () => {
-  process.env.ANALYSIS_MODE = "fast";
-  process.env.MAX_REVISION_CYCLES = "0";
-  const previousModel = process.env.LLM_MODEL;
-  const checkpoints = new Map<string, { fingerprint: string; checkpoint: unknown }>();
-  const firstSteps: string[] = [];
-  const secondSteps: string[] = [];
-  const persistenceFor = (steps: string[]): AnalysisRunPersistence => ({
-    async initializeRun() {},
-    async saveStepOutput(_runId, step) { steps.push(step.agentName); },
-    async saveFinal() {},
-    async saveMeta() {},
-    async cleanupOldRuns() {},
-  });
-  const checkpointStore = {
-    async load(runId: string) { return checkpoints.get(runId) ?? null; },
-    async save(runId: string, fingerprint: string, checkpoint: unknown) {
-      checkpoints.set(runId, { fingerprint, checkpoint });
+    async clear(runId: string) {
+      checkpoints.delete(runId);
+      clearedRunIds.push(runId);
     },
-    async clear(runId: string) { checkpoints.delete(runId); },
   };
   const input = {
     resumeText: "Candidate has product delivery experience.",
@@ -154,23 +98,16 @@ test("a model change preserves completed checkpoint stages", async () => {
     source: "web" as const,
   };
 
-  try {
-    process.env.LLM_MODEL = "model-a";
-    await assert.rejects(createAnalyzeJobApplication({ persistence: persistenceFor(firstSteps), createRunId: () => "model-run", checkpointStore })(input));
-    const saved = checkpoints.get("model-run");
-    assert.ok(saved !== undefined);
-    const checkpointWithoutCritic = { ...(saved.checkpoint as Record<string, unknown>) };
-    delete checkpointWithoutCritic.latestCriticResult;
-    checkpoints.set("model-run", { ...saved, checkpoint: checkpointWithoutCritic });
-    process.env.LLM_MODEL = "model-b";
-    await assert.rejects(createAnalyzeJobApplication({ persistence: persistenceFor(secondSteps), createRunId: () => "model-run", checkpointStore })(input));
-  } finally {
-    if (previousModel === undefined) delete process.env.LLM_MODEL;
-    else process.env.LLM_MODEL = previousModel;
-  }
+  const result = await createAnalyzeJobApplication({
+    persistence: persistenceFor(firstSteps),
+    createRunId: () => "checkpoint-run",
+    checkpointStore,
+  })(input);
 
-  assert.deepEqual(firstSteps, ["analyst", "producer.v1", "critic.v1"]);
-  assert.deepEqual(secondSteps, ["critic.v1"]);
+  assert.equal(result.meta.finalDecision, "NEEDS_REVISION");
+  assert.deepEqual(firstSteps, ["analyst", "producer.v1", "critic.v1", "orchestrator.final"]);
+  assert.equal(checkpoints.has("checkpoint-run"), false);
+  assert.deepEqual(clearedRunIds, ["checkpoint-run"]);
 });
 
 test("Mock revision flow stops after the third producer version", async () => {

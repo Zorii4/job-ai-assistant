@@ -16,8 +16,8 @@ function createApplicationCaseRecord() {
     title: 'Backend developer',
     resumeId: 'resume-1',
     vacancySourceType: 'FILE' as const,
-    status: 'DRAFT' as const,
-    currentStage: 'DRAFT',
+    status: 'IN_PROGRESS' as const,
+    currentStage: 'IN_PROGRESS',
     createdAt,
     updatedAt: createdAt,
   };
@@ -52,8 +52,8 @@ test('creates a vacancy draft with a confirmed sanitized resume snapshot', async
     title: 'Backend developer',
     resumeId: 'resume-1',
     vacancySourceType: 'FILE',
-    status: 'DRAFT',
-    currentStage: 'DRAFT',
+    status: 'IN_PROGRESS',
+    currentStage: 'IN_PROGRESS',
     createdAt: '2026-08-03T18:00:00.000Z',
     updatedAt: '2026-08-03T18:00:00.000Z',
   });
@@ -146,8 +146,8 @@ test('lists only the owners analysis snapshots without source texts', async () =
         return [{
           id: 'application-1',
           title: 'Backend developer',
-          status: 'ANALYZING' as const,
-          currentStage: 'ANALYZING',
+          status: 'IN_PROGRESS' as const,
+          currentStage: 'IN_PROGRESS',
           createdAt,
           updatedAt: createdAt,
           analysisRuns: [{
@@ -157,6 +157,7 @@ test('lists only the owners analysis snapshots without source texts', async () =
             status: 'RUNNING' as const,
             currentStage: 'producer',
             errorCode: null,
+            manualRetryCount: 0,
             createdAt,
             updatedAt: createdAt,
           }],
@@ -171,8 +172,8 @@ test('lists only the owners analysis snapshots without source texts', async () =
   assert.deepEqual(result, [{
     id: 'application-1',
     title: 'Backend developer',
-    status: 'ANALYZING',
-    currentStage: 'ANALYZING',
+    status: 'IN_PROGRESS',
+    currentStage: 'IN_PROGRESS',
     createdAt: '2026-08-03T18:00:00.000Z',
     updatedAt: '2026-08-03T18:00:00.000Z',
     analysisRun: {
@@ -182,6 +183,7 @@ test('lists only the owners analysis snapshots without source texts', async () =
       status: 'RUNNING',
       currentStage: 'producer',
       errorCode: null,
+      manualRetryCount: 0,
       createdAt: '2026-08-03T18:00:00.000Z',
       updatedAt: '2026-08-03T18:00:00.000Z',
     },
@@ -207,6 +209,7 @@ test('lists only the owners analysis snapshots without source texts', async () =
           status: true,
           currentStage: true,
           errorCode: true,
+          manualRetryCount: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -217,11 +220,9 @@ test('lists only the owners analysis snapshots without source texts', async () =
 
 test('starts one queued initial analysis and enqueues identifiers only', async () => {
   let queuePayload: unknown;
-  let applicationUpdate: unknown;
   let runCreate: unknown;
   let queueJobUpdate: unknown;
   let usageReservation: unknown;
-  let stageEvent: unknown;
   const database = {
     async $transaction(callbackOrOperations: unknown) {
       if (typeof callbackOrOperations === 'function') {
@@ -232,11 +233,7 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
     },
     applicationCase: {
       async findFirst() {
-        return { id: 'application-1', status: 'DRAFT' as const };
-      },
-      async update(arguments_: unknown) {
-        applicationUpdate = arguments_;
-        return {};
+        return { id: 'application-1', status: 'IN_PROGRESS' as const };
       },
     },
     user: {
@@ -248,6 +245,7 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
       async update() { return {}; },
     },
     analysisRun: {
+      async findFirst() { return null; },
       async count() { return 0; },
       async create(arguments_: unknown) {
         runCreate = arguments_;
@@ -258,6 +256,7 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
           status: 'QUEUED' as const,
           currentStage: null,
           errorCode: null,
+          manualRetryCount: 0,
           createdAt,
           updatedAt: createdAt,
         };
@@ -267,7 +266,6 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
         return {};
       },
     },
-    stageEvent: { async create(arguments_: unknown) { stageEvent = arguments_; return {}; } },
   };
   const jobs = {
     async enqueueInitialAnalysis(payload: unknown) {
@@ -286,17 +284,11 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
     status: 'QUEUED',
     currentStage: null,
     errorCode: null,
+    manualRetryCount: 0,
     createdAt: '2026-08-03T18:00:00.000Z',
     updatedAt: '2026-08-03T18:00:00.000Z',
   });
   assert.deepEqual(queuePayload, { applicationCaseId: 'application-1', analysisRunId: 'run-1' });
-  assert.deepEqual(applicationUpdate, {
-    where: { id: 'application-1' },
-    data: { status: 'ANALYZING', currentStage: 'ANALYZING' },
-  });
-  assert.deepEqual(stageEvent, {
-    data: { applicationCaseId: 'application-1', fromStage: 'DRAFT', toStage: 'ANALYZING', source: 'SYSTEM' },
-  });
   assert.deepEqual(usageReservation, {
     where: { id: 'user-1', initialAnalysisUnitsUsed: { lt: 10 } },
     data: { initialAnalysisUnitsUsed: { increment: 1 } },
@@ -314,6 +306,7 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
       status: true,
       currentStage: true,
       errorCode: true,
+      manualRetryCount: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -324,7 +317,7 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
   });
 });
 
-test('requeues the owners failed analysis without creating a second run or double-charging quota', async () => {
+test('requeues the owners failed analysis without creating a second run or charging quota again', async () => {
   const runUpdates: unknown[] = [];
   let runCreationAttempted = false;
   let usageReservation: unknown;
@@ -335,7 +328,7 @@ test('requeues the owners failed analysis without creating a second run or doubl
     },
     applicationCase: {
       async findFirst() {
-        return { id: 'application-1', status: 'FAILED' as const };
+        return { id: 'application-1', status: 'IN_PROGRESS' as const };
       },
       async update() { return {}; },
     },
@@ -349,14 +342,10 @@ test('requeues the owners failed analysis without creating a second run or doubl
     analysisRun: {
       async findFirst(arguments_: unknown) {
         assert.deepEqual(arguments_, {
-          where: {
-            applicationCaseId: 'application-1',
-            workflowType: 'INITIAL_ANALYSIS',
-            status: 'FAILED',
-          },
-          select: { id: true },
+          where: { applicationCaseId: 'application-1', workflowType: 'INITIAL_ANALYSIS' },
+          select: { id: true, status: true, manualRetryCount: true },
         });
-        return { id: 'run-1' };
+        return { id: 'run-1', status: 'FAILED' as const, manualRetryCount: 0 };
       },
       async count() { return 0; },
       async create() { runCreationAttempted = true; return {}; },
@@ -370,6 +359,7 @@ test('requeues the owners failed analysis without creating a second run or doubl
             status: 'QUEUED' as const,
             currentStage: null,
             errorCode: null,
+            manualRetryCount: 1,
             createdAt,
             updatedAt: createdAt,
           };
@@ -396,6 +386,7 @@ test('requeues the owners failed analysis without creating a second run or doubl
     status: 'QUEUED',
     currentStage: null,
     errorCode: null,
+    manualRetryCount: 1,
     createdAt: '2026-08-03T18:00:00.000Z',
     updatedAt: '2026-08-03T18:00:00.000Z',
   });
@@ -410,6 +401,7 @@ test('requeues the owners failed analysis without creating a second run or doubl
       startedAt: null,
       finishedAt: null,
       editedFinalMarkdown: null,
+      manualRetryCount: { increment: 1 },
     },
     select: {
       id: true,
@@ -418,6 +410,7 @@ test('requeues the owners failed analysis without creating a second run or doubl
       status: true,
       currentStage: true,
       errorCode: true,
+      manualRetryCount: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -427,20 +420,17 @@ test('requeues the owners failed analysis without creating a second run or doubl
     data: { queueJobId: 'queue-job-retry' },
   });
   assert.deepEqual(queuePayload, { applicationCaseId: 'application-1', analysisRunId: 'run-1' });
-  assert.deepEqual(usageReservation, {
-    where: { id: 'user-1', initialAnalysisUnitsUsed: { lt: 10 } },
-    data: { initialAnalysisUnitsUsed: { increment: 1 } },
-  });
+  assert.equal(usageReservation, undefined);
 });
 
-test('rejects retry when a failed vacancy has no failed initial-analysis run', async () => {
+test('rejects a new initial analysis after a successful run', async () => {
   const database = {
     async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
     applicationCase: {
-      async findFirst() { return { id: 'application-1', status: 'FAILED' as const }; },
+      async findFirst() { return { id: 'application-1', status: 'IN_PROGRESS' as const }; },
     },
     analysisRun: {
-      async findFirst() { return null; },
+      async findFirst() { return { id: 'run-1', status: 'SUCCEEDED' as const }; },
     },
   };
   const service = new ApplicationsService(database as never, {} as never);
@@ -457,7 +447,7 @@ test('rejects a third active initial analysis before reserving quota or creating
   const database = {
     async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
     applicationCase: {
-      async findFirst() { return { id: 'application-3', status: 'DRAFT' as const }; },
+      async findFirst() { return { id: 'application-3', status: 'IN_PROGRESS' as const }; },
       async update() { return {}; },
     },
     user: {
@@ -465,6 +455,7 @@ test('rejects a third active initial analysis before reserving quota or creating
       async updateMany() { usageReservationAttempted = true; return { count: 1 }; },
     },
     analysisRun: {
+      async findFirst() { return null; },
       async count(arguments_: unknown) {
         assert.deepEqual(arguments_, {
           where: {
@@ -495,7 +486,7 @@ test('allows a new analysis after either terminal run status releases active cap
     const database = {
       async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
       applicationCase: {
-        async findFirst() { return { id: `application-${terminalStatus}`, status: 'DRAFT' as const }; },
+        async findFirst() { return { id: `application-${terminalStatus}`, status: 'IN_PROGRESS' as const }; },
         async update() { return {}; },
       },
       user: {
@@ -503,6 +494,7 @@ test('allows a new analysis after either terminal run status releases active cap
         async updateMany() { return { count: 1 }; },
       },
       analysisRun: {
+        async findFirst() { return null; },
         async count(arguments_: { where: { status: { in: string[] } } }) {
           return existingStatuses.filter((status) => arguments_.where.status.in.includes(status)).length;
         },
@@ -541,9 +533,10 @@ test('retries a serialization conflict before starting one initial analysis', as
       if (transactionCalls === 1) throw new Prisma.PrismaClientKnownRequestError('retry', { code: 'P2034', clientVersion: 'test' });
       return callback(this);
     },
-    applicationCase: { async findFirst() { return { id: 'application-1', status: 'DRAFT' as const }; }, async update() { return {}; } },
+    applicationCase: { async findFirst() { return { id: 'application-1', status: 'IN_PROGRESS' as const }; }, async update() { return {}; } },
     user: { async findUnique() { return { planCode: 'ALPHA' }; }, async updateMany() { return { count: 1 }; }, async update() { return {}; } },
     analysisRun: {
+      async findFirst() { return null; },
       async count() { return 1; },
       async create() { createdRuns += 1; return { id: 'run-1', applicationCaseId: 'application-1', workflowType: 'INITIAL_ANALYSIS' as const, status: 'QUEUED' as const, currentStage: null, errorCode: null, createdAt, updatedAt: createdAt }; },
       async update() { return {}; },
@@ -563,14 +556,14 @@ test('does not start an analysis when all ten lifetime units are reserved', asyn
   const database = {
     async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
     applicationCase: {
-      async findFirst() { return { id: 'application-1', status: 'DRAFT' as const }; },
+      async findFirst() { return { id: 'application-1', status: 'IN_PROGRESS' as const }; },
       async update() { return {}; },
     },
     user: {
       async findUnique() { return { planCode: 'ALPHA' }; },
       async updateMany() { return { count: 0 }; },
     },
-    analysisRun: { async count() { return 0; }, async create() { runCreated = true; return {}; } },
+    analysisRun: { async findFirst() { return null; }, async count() { return 0; }, async create() { runCreated = true; return {}; } },
   };
   const service = new ApplicationsService(database as never, { async enqueueInitialAnalysis() { return 'job'; } } as never);
 
@@ -590,7 +583,7 @@ test('releases a reserved unit when the analysis queue is unavailable', async ()
       return Promise.all(callbackOrOperations as Promise<unknown>[]);
     },
     applicationCase: {
-      async findFirst() { return { id: 'application-1', status: 'DRAFT' as const }; },
+      async findFirst() { return { id: 'application-1', status: 'IN_PROGRESS' as const }; },
       async update() { return {}; },
     },
     user: {
@@ -599,6 +592,7 @@ test('releases a reserved unit when the analysis queue is unavailable', async ()
       async update(arguments_: unknown) { releasedUsage = arguments_; return {}; },
     },
     analysisRun: {
+      async findFirst() { return null; },
       async count() { return 0; },
       async create() {
         return {
@@ -619,12 +613,10 @@ test('releases a reserved unit when the analysis queue is unavailable', async ()
     where: { id: 'user-1' },
     data: { initialAnalysisUnitsUsed: { decrement: 1 } },
   });
-  assert.deepEqual(failedStageEvent, {
-    data: { applicationCaseId: 'application-1', fromStage: 'ANALYZING', toStage: 'FAILED', source: 'SYSTEM' },
-  });
+  assert.equal(failedStageEvent, undefined);
 });
 
-test('starts one queued HR preparation only for an invited vacancy and enqueues identifiers', async () => {
+test('starts one queued HR preparation after a successful initial analysis and enqueues identifiers', async () => {
   let createArguments: unknown;
   let queuePayload: unknown;
   let queueJobUpdate: unknown;
@@ -638,15 +630,14 @@ test('starts one queued HR preparation only for an invited vacancy and enqueues 
           where: { id: 'application-1', userId: 'user-1' },
           select: { id: true, status: true },
         });
-        return { id: 'application-1', status: 'HR_INVITED' as const };
+        return { id: 'application-1', status: 'IN_PROGRESS' as const };
       },
     },
     analysisRun: {
       async findFirst(arguments_: unknown) {
-        assert.deepEqual(arguments_, {
-          where: { applicationCaseId: 'application-1', workflowType: 'HR_PREPARATION' },
-          select: { id: true, status: true },
-        });
+        const workflowType = (arguments_ as { where: { workflowType: string } }).where.workflowType;
+        if (workflowType === 'INITIAL_ANALYSIS') return { id: 'run-initial-1' };
+        assert.deepEqual(arguments_, { where: { applicationCaseId: 'application-1', workflowType: 'HR_PREPARATION' }, select: { id: true, status: true, manualRetryCount: true } });
         return null;
       },
       async create(arguments_: unknown) {
@@ -658,6 +649,7 @@ test('starts one queued HR preparation only for an invited vacancy and enqueues 
           status: 'QUEUED' as const,
           currentStage: null,
           errorCode: null,
+          manualRetryCount: 0,
           createdAt,
           updatedAt: createdAt,
         };
@@ -692,6 +684,7 @@ test('starts one queued HR preparation only for an invited vacancy and enqueues 
       status: true,
       currentStage: true,
       errorCode: true,
+      manualRetryCount: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -700,20 +693,21 @@ test('starts one queued HR preparation only for an invited vacancy and enqueues 
   assert.deepEqual(queueJobUpdate, { where: { id: 'run-hr-1' }, data: { queueJobId: 'queue-job-hr-1' } });
 });
 
-test('rejects HR preparation before an invitation, duplicate runs, and foreign vacancies', async () => {
-  const beforeInvitation = {
+test('rejects HR preparation without a successful initial analysis, duplicate runs, and foreign vacancies', async () => {
+  const withoutInitialAnalysis = {
     async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
-    applicationCase: { async findFirst() { return { id: 'application-1', status: 'ANALYSIS_READY' as const }; } },
+    applicationCase: { async findFirst() { return { id: 'application-1', status: 'IN_PROGRESS' as const }; } },
+    analysisRun: { async findFirst() { return null; } },
   };
   await assert.rejects(
-    new ApplicationsService(beforeInvitation as never, {} as never).launchHrPreparationForUser('user-1', 'application-1'),
+    new ApplicationsService(withoutInitialAnalysis as never, {} as never).launchHrPreparationForUser('user-1', 'application-1'),
     (error: unknown) => error instanceof BadRequestException,
   );
 
   const duplicateRun = {
     async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
-    applicationCase: { async findFirst() { return { id: 'application-1', status: 'HR_INVITED' as const }; } },
-    analysisRun: { async findFirst() { return { id: 'run-hr-1', status: 'QUEUED' as const }; } },
+    applicationCase: { async findFirst() { return { id: 'application-1', status: 'IN_PROGRESS' as const }; } },
+    analysisRun: { async findFirst(arguments_: unknown) { return (arguments_ as { where: { workflowType: string } }).where.workflowType === 'INITIAL_ANALYSIS' ? { id: 'run-initial-1' } : { id: 'run-hr-1', status: 'QUEUED' as const }; } },
   };
   await assert.rejects(
     new ApplicationsService(duplicateRun as never, {} as never).launchHrPreparationForUser('user-1', 'application-1'),
@@ -739,9 +733,9 @@ test('marks only the HR run as failed when its queue is unavailable', async () =
   let updateArguments: unknown;
   const database = {
     async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
-    applicationCase: { async findFirst() { return { id: 'application-1', status: 'HR_INVITED' as const }; } },
+    applicationCase: { async findFirst() { return { id: 'application-1', status: 'IN_PROGRESS' as const }; } },
     analysisRun: {
-      async findFirst() { return null; },
+      async findFirst(arguments_: unknown) { return (arguments_ as { where: { workflowType: string } }).where.workflowType === 'INITIAL_ANALYSIS' ? { id: 'run-initial-1' } : null; },
       async create() {
         return {
           id: 'run-hr-1', applicationCaseId: 'application-1', workflowType: 'HR_PREPARATION' as const,
@@ -803,31 +797,67 @@ test('replaces only the oldest completed vacancy after explicit confirmation', a
   );
   assert.equal(result.id, 'application-1');
   assert.equal(created, true);
-  assert.deepEqual(deleted, { where: { id: 'oldest-completed', userId: 'user-1', status: { in: ['REJECTED', 'OFFER', 'ARCHIVED'] } } });
+  assert.deepEqual(deleted, { where: { id: 'oldest-completed', userId: 'user-1', status: { in: ['REJECTED', 'OFFER'] } } });
 });
 
-test('deletes only an owners completed or archived vacancy', async () => {
+test('enforces the three manual retry limit for every workflow', async () => {
+  const cappedInitial = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
+    applicationCase: { async findFirst() { return { id: 'application-1', status: 'IN_PROGRESS' as const }; } },
+    analysisRun: { async findFirst() { return { id: 'run-initial-1', status: 'FAILED' as const, manualRetryCount: 3 }; } },
+  };
+  await assert.rejects(
+    new ApplicationsService(cappedInitial as never, {} as never).launchInitialAnalysisForUser('user-1', 'application-1'),
+    (error: unknown) => error instanceof HttpException && error.getStatus() === 429,
+  );
+
+  const cappedHr = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
+    applicationCase: { async findFirst() { return { id: 'application-1', status: 'IN_PROGRESS' as const }; } },
+    analysisRun: { async findFirst(arguments_: unknown) { return (arguments_ as { where: { workflowType: string } }).where.workflowType === 'INITIAL_ANALYSIS' ? { id: 'run-initial-1' } : { id: 'run-hr-1', status: 'FAILED' as const, manualRetryCount: 3 }; } },
+  };
+  await assert.rejects(
+    new ApplicationsService(cappedHr as never, {} as never).launchHrPreparationForUser('user-1', 'application-1'),
+    (error: unknown) => error instanceof HttpException && error.getStatus() === 429,
+  );
+
+  const cappedPostInterview = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
+    applicationCase: { async findFirst() { return { id: 'application-1', status: 'IN_PROGRESS' as const }; } },
+    analysisRun: { async findFirst() { return { id: 'run-post-1', status: 'FAILED' as const, manualRetryCount: 3 }; } },
+  };
+  await assert.rejects(
+    new ApplicationsService(cappedPostInterview as never, {} as never).retryPostInterviewForUser('user-1', 'application-1'),
+    (error: unknown) => error instanceof HttpException && error.getStatus() === 429,
+  );
+});
+
+test('deletes an owners vacancy only when no workflow run is active', async () => {
   let deleteArguments: unknown;
   const database = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
     applicationCase: {
-      async deleteMany(arguments_: unknown) { deleteArguments = arguments_; return { count: 1 }; },
+      async findFirst() { return { id: 'application-1' }; },
+      async delete(arguments_: unknown) { deleteArguments = arguments_; return {}; },
     },
+    analysisRun: { async findFirst() { return null; } },
   };
   const service = new ApplicationsService(database as never);
 
   await service.deleteCompletedForUser('user-1', 'application-1');
 
   assert.deepEqual(deleteArguments, {
-    where: { id: 'application-1', userId: 'user-1', status: { in: ['REJECTED', 'OFFER', 'ARCHIVED'] } },
+    where: { id: 'application-1' },
   });
 });
 
 test('protects an owners active vacancy from deletion', async () => {
   const database = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
     applicationCase: {
-      async deleteMany() { return { count: 0 }; },
       async findFirst() { return { id: 'application-1' }; },
     },
+    analysisRun: { async findFirst() { return { id: 'run-active' }; } },
   };
   const service = new ApplicationsService(database as never);
 
@@ -839,9 +869,9 @@ test('protects an owners active vacancy from deletion', async () => {
 
 test('does not delete another users vacancy', async () => {
   const database = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
     applicationCase: {
-      async deleteMany() { return { count: 0 }; },
-      async findFirst() { return null; },
+      async findFirst(arguments_: unknown) { return (arguments_ as { where: { workflowType: string } }).where.workflowType === 'INITIAL_ANALYSIS' ? { id: 'run-initial-1' } : null; },
     },
   };
   const service = new ApplicationsService(database as never);
@@ -863,7 +893,7 @@ test('records an owner-scoped manual status correction as a user stage event', a
           where: { id: 'application-1', userId: 'user-1' },
           select: { id: true, status: true },
         });
-        return { id: 'application-1', status: 'WAITING_RESPONSE' as const };
+        return { id: 'application-1', status: 'IN_PROGRESS' as const };
       },
       async update(arguments_: unknown) { updateArguments = arguments_; return {}; },
     },
@@ -871,14 +901,14 @@ test('records an owner-scoped manual status correction as a user stage event', a
   };
   const service = new ApplicationsService(database as never);
 
-  await service.updateStageForUser('user-1', 'application-1', 'HR_INVITED');
+  await service.updateStageForUser('user-1', 'application-1', 'REJECTED');
 
   assert.deepEqual(updateArguments, {
     where: { id: 'application-1' },
-    data: { status: 'HR_INVITED', currentStage: 'HR_INVITED' },
+    data: { status: 'REJECTED', currentStage: 'REJECTED' },
   });
   assert.deepEqual(eventArguments, {
-    data: { applicationCaseId: 'application-1', fromStage: 'WAITING_RESPONSE', toStage: 'HR_INVITED', source: 'USER' },
+    data: { applicationCaseId: 'application-1', fromStage: 'IN_PROGRESS', toStage: 'REJECTED', source: 'USER' },
   });
 });
 
@@ -890,7 +920,7 @@ test('does not create a manual stage event for another users vacancy', async () 
   const service = new ApplicationsService(database as never);
 
   await assert.rejects(
-    service.updateStageForUser('user-2', 'application-1', 'HR_INVITED'),
+    service.updateStageForUser('user-2', 'application-1', 'REJECTED'),
     (error: unknown) => error instanceof NotFoundException,
   );
 });
@@ -933,6 +963,7 @@ test('returns a run status only when its vacancy belongs to the user', async () 
           status: 'FAILED' as const,
           currentStage: null,
           errorCode: 'WORKFLOW_FAILED',
+          manualRetryCount: 0,
           createdAt,
           updatedAt: createdAt,
         };
@@ -950,6 +981,7 @@ test('returns a run status only when its vacancy belongs to the user', async () 
     status: 'FAILED',
     currentStage: null,
     errorCode: 'WORKFLOW_FAILED',
+    manualRetryCount: 0,
     createdAt: '2026-08-03T18:00:00.000Z',
     updatedAt: '2026-08-03T18:00:00.000Z',
   });
@@ -967,6 +999,7 @@ test('returns a run status only when its vacancy belongs to the user', async () 
       status: true,
       currentStage: true,
       errorCode: true,
+      manualRetryCount: true,
       createdAt: true,
       updatedAt: true,
     },

@@ -3,10 +3,16 @@ import test from 'node:test';
 
 import { getAppRoutePath, parseAppRoute } from '../src/routing.js';
 
-test('parses the library and vacancy creation routes', () => {
+test('parses the four top-level application routes', () => {
   assert.deepEqual(parseAppRoute('/'), { name: 'resumes' });
   assert.deepEqual(parseAppRoute('/resumes'), { name: 'resumes' });
-  assert.deepEqual(parseAppRoute('/applications/new'), { name: 'new-application' });
+  assert.deepEqual(parseAppRoute('/analysis'), { name: 'analysis' });
+  assert.deepEqual(parseAppRoute('/applications/new'), { name: 'analysis' });
+  assert.deepEqual(parseAppRoute('/history'), { name: 'history' });
+  assert.deepEqual(parseAppRoute('/account'), { name: 'account' });
+  assert.equal(getAppRoutePath({ name: 'analysis' }), '/analysis');
+  assert.equal(getAppRoutePath({ name: 'history' }), '/history');
+  assert.equal(getAppRoutePath({ name: 'account' }), '/account');
   assert.deepEqual(parseAppRoute('/privacy-policy'), { name: 'privacy-policy' });
   assert.equal(getAppRoutePath({ name: 'privacy-policy' }), '/privacy-policy');
 });

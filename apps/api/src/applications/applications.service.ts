@@ -9,7 +9,8 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 
-import type {
+import {
+  ManualRetryLimit,
   ApplicationCaseSummary,
   ApplicationCaseAnalysisSummary,
   ArtifactSummary,
@@ -28,11 +29,12 @@ import { sanitizeDirectIdentifiers, sanitizePostInterviewHrMessage } from '../re
 import { getUsagePolicy } from '../usage/usage-policy.js';
 import { AnalysisQuotaExceededException } from './analysis-quota-exceeded.exception.js';
 import { AnalysisCapacityExceededException } from './analysis-capacity-exceeded.exception.js';
+import { ManualRetryLimitReachedException } from './manual-retry-limit-reached.exception.js';
 
 const maxActiveInitialAnalysisRuns = 2;
 const maxApplicationCasesPerUser = 10;
 const serializationRetryLimit = 3;
-const removableApplicationCaseStatuses: ApplicationCaseStatus[] = ['REJECTED', 'OFFER', 'ARCHIVED'];
+const replacementCandidateStatuses: ApplicationCaseStatus[] = ['REJECTED', 'OFFER'];
 
 const applicationCaseSummarySelect = {
   id: true,
@@ -50,7 +52,7 @@ type ApplicationCaseRecord = {
   title: string;
   resumeId: string;
   vacancySourceType: 'FILE';
-  status: 'DRAFT' | 'ANALYZING' | 'ANALYSIS_READY' | 'APPLIED' | 'WAITING_RESPONSE' | 'HR_INVITED' | 'HR_PREPARATION_READY' | 'HR_COMPLETED' | 'REJECTED' | 'OFFER' | 'ARCHIVED' | 'FAILED';
+  status: 'IN_PROGRESS' | 'REJECTED' | 'OFFER';
   currentStage: string;
   createdAt: Date;
   updatedAt: Date;
@@ -63,6 +65,7 @@ const analysisRunSummarySelect = {
   status: true,
   currentStage: true,
   errorCode: true,
+  manualRetryCount: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -82,6 +85,7 @@ type AnalysisRunRecord = {
   status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
   currentStage: string | null;
   errorCode: string | null;
+  manualRetryCount: number;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -89,7 +93,7 @@ type AnalysisRunRecord = {
 type ApplicationCaseAnalysisRecord = {
   id: string;
   title: string;
-  status: 'DRAFT' | 'ANALYZING' | 'ANALYSIS_READY' | 'APPLIED' | 'WAITING_RESPONSE' | 'HR_INVITED' | 'HR_PREPARATION_READY' | 'HR_COMPLETED' | 'REJECTED' | 'OFFER' | 'ARCHIVED' | 'FAILED';
+  status: 'IN_PROGRESS' | 'REJECTED' | 'OFFER';
   currentStage: string;
   createdAt: Date;
   updatedAt: Date;
@@ -139,14 +143,16 @@ export class ApplicationsService {
   }
 
   async deleteCompletedForUser(userId: string, applicationCaseId: string): Promise<void> {
-    const result = await this.database.applicationCase.deleteMany({
-      where: { id: applicationCaseId, userId, status: { in: removableApplicationCaseStatuses } },
+    await this.runSerializableTransaction(async (transaction) => {
+      const applicationCase = await transaction.applicationCase.findFirst({ where: { id: applicationCaseId, userId }, select: { id: true } });
+      if (applicationCase === null) throw new NotFoundException();
+      const activeRun = await transaction.analysisRun.findFirst({
+        where: { applicationCaseId: applicationCase.id, status: { in: ['QUEUED', 'RUNNING'] } },
+        select: { id: true },
+      });
+      if (activeRun !== null) throw new ConflictException('Application cases with active runs cannot be deleted.');
+      await transaction.applicationCase.delete({ where: { id: applicationCase.id } });
     });
-    if (result.count === 1) return;
-
-    const applicationCase = await this.database.applicationCase.findFirst({ where: { id: applicationCaseId, userId }, select: { id: true } });
-    if (applicationCase === null) throw new NotFoundException();
-    throw new ConflictException('Active application cases cannot be deleted.');
   }
 
   async launchInitialAnalysisForUser(userId: string, applicationCaseId: string): Promise<AnalysisRunSummary> {
@@ -160,32 +166,12 @@ export class ApplicationsService {
         throw new NotFoundException();
       }
 
-      if (applicationCase.status !== 'DRAFT' && applicationCase.status !== 'FAILED') {
-        throw new BadRequestException('Initial analysis has already been started.');
-      }
+      const existingInitialRun = await transaction.analysisRun.findFirst({ where: { applicationCaseId: applicationCase.id, workflowType: 'INITIAL_ANALYSIS' }, select: { id: true, status: true, manualRetryCount: true } });
+      if (existingInitialRun !== null && existingInitialRun.status !== 'FAILED') throw new BadRequestException('Initial analysis has already been started.');
+      const failedRun = existingInitialRun?.status === 'FAILED' ? existingInitialRun : null;
 
-      const failedRun = applicationCase.status === 'FAILED'
-        ? await transaction.analysisRun.findFirst({
-          where: {
-            applicationCaseId: applicationCase.id,
-            workflowType: 'INITIAL_ANALYSIS',
-            status: 'FAILED',
-          },
-          select: { id: true },
-        })
-        : null;
-
-      if (applicationCase.status === 'FAILED' && failedRun === null) {
-        throw new BadRequestException('Failed initial analysis run is unavailable.');
-      }
-
-      const user = await transaction.user.findUnique({
-        where: { id: userId },
-        select: { planCode: true },
-      });
-
-      if (user === null) {
-        throw new NotFoundException();
+      if (failedRun !== null && failedRun.manualRetryCount >= ManualRetryLimit) {
+        throw new ManualRetryLimitReachedException();
       }
 
       const activeRunCount = await transaction.analysisRun.count({
@@ -200,24 +186,6 @@ export class ApplicationsService {
         throw new AnalysisCapacityExceededException();
       }
 
-      const reservation = await transaction.user.updateMany({
-        where: {
-          id: userId,
-          initialAnalysisUnitsUsed: { lt: getUsagePolicy(user.planCode).productUnitLimit },
-        },
-        data: { initialAnalysisUnitsUsed: { increment: 1 } },
-      });
-
-      if (reservation.count !== 1) {
-        throw new AnalysisQuotaExceededException();
-      }
-
-      await transaction.applicationCase.update({
-        where: { id: applicationCase.id },
-        data: { status: 'ANALYZING', currentStage: 'ANALYZING' },
-      });
-      await transaction.stageEvent.create({ data: { applicationCaseId: applicationCase.id, fromStage: applicationCase.status, toStage: 'ANALYZING', source: 'SYSTEM' } });
-
       if (failedRun !== null) {
         return transaction.analysisRun.update({
           where: { id: failedRun.id },
@@ -230,9 +198,31 @@ export class ApplicationsService {
             startedAt: null,
             finishedAt: null,
             editedFinalMarkdown: null,
+            manualRetryCount: { increment: 1 },
           },
           select: analysisRunSummarySelect,
         });
+      }
+
+      const user = await transaction.user.findUnique({
+        where: { id: userId },
+        select: { planCode: true },
+      });
+
+      if (user === null) {
+        throw new NotFoundException();
+      }
+
+      const reservation = await transaction.user.updateMany({
+        where: {
+          id: userId,
+          initialAnalysisUnitsUsed: { lt: getUsagePolicy(user.planCode).productUnitLimit },
+        },
+        data: { initialAnalysisUnitsUsed: { increment: 1 } },
+      });
+
+      if (reservation.count !== 1) {
+        throw new AnalysisQuotaExceededException();
       }
 
       return transaction.analysisRun.create({
@@ -265,18 +255,6 @@ export class ApplicationsService {
             errorMessageSanitized: 'QUEUE_UNAVAILABLE',
           },
         }),
-        this.database.applicationCase.update({
-          where: { id: analysisRun.applicationCaseId },
-          data: { status: 'FAILED', currentStage: 'FAILED' },
-        }),
-        this.database.stageEvent.create({
-          data: {
-            applicationCaseId: analysisRun.applicationCaseId,
-            fromStage: 'ANALYZING',
-            toStage: 'FAILED',
-            source: 'SYSTEM',
-          },
-        }),
         this.database.user.update({
           where: { id: userId },
           data: { initialAnalysisUnitsUsed: { decrement: 1 } },
@@ -299,13 +277,12 @@ export class ApplicationsService {
         throw new NotFoundException();
       }
 
-      if (applicationCase.status !== 'HR_INVITED') {
-        throw new BadRequestException('HR preparation is available only after an HR invitation.');
-      }
+      const initialAnalysis = await transaction.analysisRun.findFirst({ where: { applicationCaseId: applicationCase.id, workflowType: 'INITIAL_ANALYSIS', status: 'SUCCEEDED', finalMarkdown: { not: null } }, select: { id: true } });
+      if (initialAnalysis === null) throw new BadRequestException('A successful initial analysis is required.');
 
       const existingRun = await transaction.analysisRun.findFirst({
         where: { applicationCaseId: applicationCase.id, workflowType: 'HR_PREPARATION' },
-        select: { id: true, status: true },
+        select: { id: true, status: true, manualRetryCount: true },
       });
 
       if (existingRun === null) {
@@ -323,6 +300,10 @@ export class ApplicationsService {
         throw new BadRequestException('HR preparation has already been started.');
       }
 
+      if (existingRun.manualRetryCount >= ManualRetryLimit) {
+        throw new ManualRetryLimitReachedException();
+      }
+
       return transaction.analysisRun.update({
         where: { id: existingRun.id },
         data: {
@@ -333,6 +314,7 @@ export class ApplicationsService {
           queueJobId: null,
           startedAt: null,
           finishedAt: null,
+          manualRetryCount: { increment: 1 },
         },
         select: analysisRunSummarySelect,
       });
@@ -384,9 +366,8 @@ export class ApplicationsService {
         throw new NotFoundException();
       }
 
-      if (applicationCase.status !== 'HR_INVITED' && applicationCase.status !== 'HR_PREPARATION_READY') {
-        throw new BadRequestException('Post-interview analysis is available only after HR screening.');
-      }
+      const hrPreparation = await transaction.analysisRun.findFirst({ where: { applicationCaseId: applicationCase.id, workflowType: 'HR_PREPARATION', status: 'SUCCEEDED' }, select: { id: true } });
+      if (hrPreparation === null) throw new BadRequestException('A successful HR preparation is required.');
 
       const initialAnalysis = await transaction.analysisRun.findFirst({
         where: {
@@ -416,14 +397,6 @@ export class ApplicationsService {
         create: { applicationCaseId: applicationCase.id, sanitizedHrMessage },
         update: { sanitizedHrMessage },
       });
-      await transaction.applicationCase.update({
-        where: { id: applicationCase.id },
-        data: { status: 'HR_COMPLETED', currentStage: 'HR_COMPLETED' },
-      });
-      await transaction.stageEvent.create({
-        data: { applicationCaseId: applicationCase.id, fromStage: applicationCase.status, toStage: 'HR_COMPLETED', source: 'USER' },
-      });
-
       return transaction.analysisRun.create({
         data: {
           applicationCaseId: applicationCase.id,
@@ -448,10 +421,6 @@ export class ApplicationsService {
         throw new NotFoundException();
       }
 
-      if (applicationCase.status !== 'HR_COMPLETED') {
-        throw new BadRequestException('Post-interview retry is unavailable for this stage.');
-      }
-
       const existingRun = await transaction.analysisRun.findFirst({
         where: { applicationCaseId: applicationCase.id, workflowType: 'POST_INTERVIEW' },
         select: { id: true, status: true, manualRetryCount: true },
@@ -461,8 +430,8 @@ export class ApplicationsService {
         throw new BadRequestException('Post-interview retry is unavailable.');
       }
 
-      if (existingRun.manualRetryCount >= 1) {
-        throw new BadRequestException('Post-interview retry limit has been reached.');
+      if (existingRun.manualRetryCount >= ManualRetryLimit) {
+        throw new ManualRetryLimitReachedException();
       }
 
       return transaction.analysisRun.update({
@@ -705,9 +674,9 @@ export class ApplicationsService {
 
     const applicationCaseCount = await this.database.applicationCase.count({ where: { userId } });
     if (applicationCaseCount >= maxApplicationCasesPerUser) {
-      const candidate = await this.database.applicationCase.findFirst({ where: { userId, status: { in: removableApplicationCaseStatuses } }, orderBy: { createdAt: 'asc' }, select: { id: true } });
+      const candidate = await this.database.applicationCase.findFirst({ where: { userId, status: { in: replacementCandidateStatuses } }, orderBy: { createdAt: 'asc' }, select: { id: true } });
       if (candidate === null || input.replacementApplicationCaseId !== candidate.id) throw new ApplicationCaseLimitReachedException();
-      const deleted = await this.database.applicationCase.deleteMany({ where: { id: candidate.id, userId, status: { in: removableApplicationCaseStatuses } } });
+      const deleted = await this.database.applicationCase.deleteMany({ where: { id: candidate.id, userId, status: { in: replacementCandidateStatuses } } });
       if (deleted.count !== 1) throw new ApplicationCaseLimitReachedException();
     }
 
@@ -765,7 +734,7 @@ function isTransactionSerializationFailure(error: unknown): boolean {
 }
 
 function toApplicationCaseSummary(record: ApplicationCaseRecord): ApplicationCaseSummary {
-  if (record.currentStage !== 'DRAFT') {
+  if (record.currentStage !== 'IN_PROGRESS') {
     throw new Error('Unexpected application case stage for a draft response.');
   }
 
@@ -775,7 +744,7 @@ function toApplicationCaseSummary(record: ApplicationCaseRecord): ApplicationCas
     resumeId: record.resumeId,
     vacancySourceType: record.vacancySourceType,
     status: record.status,
-    currentStage: 'DRAFT',
+    currentStage: 'IN_PROGRESS',
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   };
@@ -789,6 +758,7 @@ function toAnalysisRunSummary(record: AnalysisRunRecord): AnalysisRunSummary {
     status: record.status,
     currentStage: record.currentStage,
     errorCode: record.errorCode,
+    manualRetryCount: record.manualRetryCount,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   };

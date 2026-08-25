@@ -13,6 +13,7 @@ import {
   type ApiErrorResponse,
 } from '@job-ai-assistant/contracts';
 import { AnalysisQuotaExceededException } from '../applications/analysis-quota-exceeded.exception.js';
+import { ManualRetryLimitReachedException } from '../applications/manual-retry-limit-reached.exception.js';
 
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
@@ -29,7 +30,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
 
 function createErrorResponse(status: number, exception: unknown): ApiErrorResponse {
   const error =
-    status === HttpStatus.BAD_REQUEST
+    exception instanceof ManualRetryLimitReachedException
+      ? { code: 'MANUAL_RETRY_LIMIT_REACHED' as const, message: 'Лимит ручных повторов исчерпан.' }
+      : status === HttpStatus.BAD_REQUEST
       ? { code: 'BAD_REQUEST' as const, message: 'Некорректный запрос.' }
       : status === HttpStatus.PAYLOAD_TOO_LARGE
         ? {

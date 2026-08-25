@@ -58,6 +58,12 @@ Analyst
   -> Orchestrator
 ```
 
+Если после последней разрешённой версии Producer Critic всё ещё возвращает
+`NEEDS_REVISION`, workflow не выбрасывает готовый черновик: Orchestrator собирает
+последнюю версию материалов. Технический run завершается успешно, а terminal decision
+Critic сохраняется отдельно; evaluation различает такой `REJECTED` результат и
+технический `FAILED`.
+
 `src/app` содержит use case и порт persistence. `src/ai` координирует workflow,
 а agent-модули не знают о NestJS, Prisma, HTTP или Telegram. CLI и Telegram в
 `src/cli` и `src/telegram` используют legacy adapter-путь к тому же application
@@ -67,7 +73,7 @@ use case.
 database persistence и остаётся рабочим legacy-механизмом до отдельной миграции.
 
 HR-подготовка — отдельный одношаговый use case, не расширение Producer. После
-`HR_INVITED` worker использует только сохранённые snapshots обезличенного резюме и
+успешного initial analysis worker использует только сохранённые snapshots обезличенного резюме и
 вакансии, а также `finalMarkdown` успешного initial run. Он делает один structured
 LLM-вызов без Critic и revision, валидирует 5–10 пар «вопрос — ответ» runtime-схемой
 и сохраняет отдельный read-only Artifact. Карточка приглашённой вакансии запускает
@@ -193,11 +199,10 @@ claim и idempotent Artifact inserts не допускают второго work
 API: существующий `AnalysisRun` возвращается в `QUEUED`, поэтому не создаются второй run и
 дубликаты результата. Возвращённая при предыдущем техническом сбое единица квоты
 резервируется снова и расходуется только при успешном завершении.
-После `HR_INVITED` отдельный защищённый endpoint создаёт один HR-preparation run для
+После успешного initial analysis отдельный защищённый endpoint создаёт один HR-preparation run для
 той же вакансии; очередь получает IDs, а worker atomically claim'ит run только при
 успешном initial analysis. HR worker получает snapshots и `finalMarkdown` из БД,
-делает один LLM-вызов, сохраняет idempotent Artifact и переводит вакансию в
-`HR_PREPARATION_READY`. Ошибка LLM завершает только HR run безопасным code и не
+делает один LLM-вызов и сохраняет idempotent Artifact. Ошибка LLM завершает только HR run безопасным code и не
 повторяет initial workflow; доставка повторяется лишь для persistence-ошибки.
 Эти компоненты не должны обходить границы privacy, ownership или initial workflow.
 

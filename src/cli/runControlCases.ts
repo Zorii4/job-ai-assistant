@@ -10,7 +10,7 @@ const requiredCaseFiles = ["resume.sanitized.md", "vacancy.sanitized.md", "expec
 
 type CaseSummary = {
   caseId: string;
-  status: "SUCCEEDED" | "FAILED";
+  status: "SUCCEEDED" | "REJECTED" | "FAILED";
   durationMs: number;
   llmCalls?: number;
   finalDecision?: string;
@@ -63,9 +63,10 @@ async function main(): Promise<void> {
       const warningFindings =
         criticResult.claimAudit.filter((entry) => entry.severity === "WARNING").length +
         criticResult.issues.filter((issue) => issue.severity === "WARNING").length;
+      const status = result.meta.finalDecision === "NEEDS_REVISION" ? "REJECTED" : "SUCCEEDED";
       const summary: CaseSummary = {
         caseId,
-        status: "SUCCEEDED",
+        status,
         durationMs: Date.now() - startedAt,
         llmCalls: result.steps.length,
         finalDecision: result.meta.finalDecision,
@@ -87,9 +88,7 @@ async function main(): Promise<void> {
         writeFile(join(caseResultDir, "metrics.json"), `${JSON.stringify(summary, null, 2)}\n`, "utf8")
       ]);
       summaries.push(summary);
-      console.log(
-        `[evaluation] ${caseId}: completed in ${summary.durationMs}ms, llmCalls=${summary.llmCalls}, auditedClaims=${summary.auditedClaims}, unresolvedClaims=${summary.unresolvedClaims}, warningFindings=${summary.warningFindings}`
-      );
+      console.log(`[evaluation] ${caseId}: ${status.toLowerCase()} in ${summary.durationMs}ms, llmCalls=${summary.llmCalls}, auditedClaims=${summary.auditedClaims}, unresolvedClaims=${summary.unresolvedClaims}, warningFindings=${summary.warningFindings}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const summary: CaseSummary = {
@@ -114,7 +113,9 @@ async function main(): Promise<void> {
   await writeFile(join(runDir, "summary.json"), `${JSON.stringify(dailySummaries, null, 2)}\n`, "utf8");
 
   const failedCount = summaries.filter((summary) => summary.status === "FAILED").length;
-  console.log(`[evaluation] completed: ${summaries.length - failedCount}/${summaries.length} cases succeeded`);
+  const succeededCount = summaries.filter((summary) => summary.status === "SUCCEEDED").length;
+  const rejectedCount = summaries.filter((summary) => summary.status === "REJECTED").length;
+  console.log(`[evaluation] completed: succeeded=${succeededCount}, rejected=${rejectedCount}, failed=${failedCount}`);
 
   if (failedCount > 0) {
     process.exitCode = 1;

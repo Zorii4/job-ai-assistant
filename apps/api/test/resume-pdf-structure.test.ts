@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { extractPdfTextItems, normalizePdfTextItemsToMarkdown } from '../src/resumes/resume-pdf-structure.js';
 
-test('normalizes layout-aware PDF text items in reading order without inventing Markdown semantics', () => {
+test('normalizes layout-aware PDF text items into readable paragraphs in reading order', () => {
   const markdown = normalizePdfTextItemsToMarkdown([
     { text: 'Senior developer', pageNumber: 1, x: 72, y: 680, hasEol: true },
     { text: 'Experience', pageNumber: 1, x: 72, y: 720, hasEol: true },
@@ -11,7 +11,7 @@ test('normalizes layout-aware PDF text items in reading order without inventing 
     { text: 'Skills', pageNumber: 1, x: 72, y: 640, hasEol: true },
   ]);
 
-  assert.equal(markdown, 'Experience\n\nSenior developer TypeScript\n\nSkills');
+  assert.equal(markdown, 'Experience Senior developer TypeScript Skills');
 });
 
 test('keeps adjacent text fragments in one visual line', () => {
@@ -24,10 +24,10 @@ test('keeps adjacent text fragments in one visual line', () => {
   );
 });
 
-test('extracts a synthetic PDF into line-preserving Markdown', async () => {
+test('extracts a synthetic PDF with adjacent visual lines merged', async () => {
   const items = await extractPdfTextItems(createSimplePdf([['Experience', 'TypeScript']]));
 
-  assert.equal(normalizePdfTextItemsToMarkdown(items), 'Experience\n\nTypeScript');
+  assert.equal(normalizePdfTextItemsToMarkdown(items), 'Experience TypeScript');
 });
 
 test('keeps pages in PDF order when their coordinates repeat', async () => {
@@ -40,7 +40,7 @@ test('keeps pages in PDF order when their coordinates repeat', async () => {
 
   assert.equal(
     normalized,
-    'Page one heading\n\nPage one content\n\nPage two heading\n\nPage two content',
+    'Page one heading Page one content\n\nPage two heading Page two content',
   );
 });
 

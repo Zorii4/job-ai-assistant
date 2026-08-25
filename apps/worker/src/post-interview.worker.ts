@@ -91,7 +91,6 @@ async function claimPostInterviewRun(
        AND run."workflowType" = 'POST_INTERVIEW'
        AND run.status = 'QUEUED'
        AND application.id = run."applicationCaseId"
-       AND application.status = 'HR_COMPLETED'
        AND EXISTS (
          SELECT 1 FROM analysis_run AS initial_run
          WHERE initial_run."applicationCaseId" = application.id

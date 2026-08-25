@@ -205,7 +205,6 @@ export async function recoverInterruptedInitialAnalysisRuns(
      WHERE run."workflowType" = 'INITIAL_ANALYSIS'
        AND run.status = 'RUNNING'
        AND application.id = run."applicationCaseId"
-       AND application.status = 'ANALYZING'
      RETURNING run."applicationCaseId" AS "applicationCaseId", run.id AS "analysisRunId"`,
   );
 
@@ -224,21 +223,14 @@ export async function recoverCompletedInitialAnalysisRuns(
          AND run.status IN ('FAILED', 'QUEUED')
          AND run."finalMarkdown" IS NOT NULL
          AND length(run."finalMarkdown") > 0
-         AND application.status IN ('FAILED', 'ANALYZING', 'ANALYSIS_READY')
+         AND application.status = 'IN_PROGRESS'
        FOR UPDATE OF run, application
-     ), restored_cases AS (
-       UPDATE application_case AS application
-       SET status = 'ANALYZING', "currentStage" = 'ANALYZING', "updatedAt" = CURRENT_TIMESTAMP
-       FROM recoverable
-       WHERE application.id = recoverable."applicationCaseId"
-       RETURNING application.id
      )
      UPDATE analysis_run AS run
      SET status = 'QUEUED', "currentStage" = 'final', "errorCode" = NULL,
          "errorMessageSanitized" = NULL, "finishedAt" = NULL,
          "updatedAt" = CURRENT_TIMESTAMP
      FROM recoverable
-     JOIN restored_cases ON restored_cases.id = recoverable."applicationCaseId"
      WHERE run.id = recoverable."analysisRunId"
      RETURNING run."applicationCaseId" AS "applicationCaseId", run.id AS "analysisRunId"`,
   );

@@ -184,10 +184,6 @@ export async function runInitialAnalysisWorkflow(
     throw new Error("Critic did not return a result.");
   }
 
-  if (finalDecision === "NEEDS_REVISION") {
-    throw new Error("Critical Critic findings remain after the allowed revision cycles.");
-  }
-
   const finalStepName = "orchestrator.final";
   if (latestFinalMarkdown === undefined) {
     await beginStep("final", finalStepName);
@@ -287,18 +283,18 @@ function createStepOptions(
 
 function getMaxOutputTokens(stepName: JobApplicationAgentName): number {
   if (stepName === "analyst") {
-    return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_ANALYST, 5_000);
+    return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_ANALYST, 8_000);
   }
 
   if (stepName.startsWith("producer.")) {
-    return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_PRODUCER, 5_000);
+    return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_PRODUCER, 8_000);
   }
 
   if (stepName.startsWith("critic.")) {
-    return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_CRITIC, 5_000);
+    return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_CRITIC, 8_000);
   }
 
-  return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_ORCHESTRATOR_FINAL, 8_000);
+  return parsePositiveInteger(process.env.LLM_MAX_OUTPUT_TOKENS_ORCHESTRATOR_FINAL, 10_000);
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {

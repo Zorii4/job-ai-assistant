@@ -10,8 +10,10 @@ import {
   signUpWithInvite,
 } from '../../api';
 import type { CurrentUser } from '../../api';
+import { IconButton } from '../../components/IconButton';
 import { ThemeToggle } from '../../components/ThemeToggle';
 import type { VisualTheme } from '../../components/ThemeToggle';
+import { Eye, EyeOff } from 'lucide-react';
 import { isValidEmailAddress } from './emailValidation';
 
 export type AuthView = 'sign-in' | 'sign-up' | 'verify-email' | 'recovery' | 'reset-password';
@@ -164,11 +166,11 @@ export function AuthScreen({
           )}
 
           {(view === 'sign-in' || view === 'sign-up' || view === 'reset-password') && (
-            <div className="field"><label htmlFor="auth-password">{view === 'reset-password' ? 'Новый пароль' : 'Пароль'}</label><div className="password-field"><input id="auth-password" type={isPasswordVisible ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={view === 'reset-password' ? 'new-password' : view === 'sign-up' ? 'new-password' : 'current-password'} disabled={isSubmitting} /><button className="button button--secondary button--small" type="button" aria-pressed={isPasswordVisible} onClick={() => setIsPasswordVisible((current) => !current)} disabled={isSubmitting}>{isPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}</button></div></div>
+            <div className="field"><label htmlFor="auth-password">{view === 'reset-password' ? 'Новый пароль' : 'Пароль'}</label><div className="password-field"><input id="auth-password" type={isPasswordVisible ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={view === 'reset-password' ? 'new-password' : view === 'sign-up' ? 'new-password' : 'current-password'} disabled={isSubmitting} /><IconButton type="button" label={isPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'} aria-pressed={isPasswordVisible} onClick={() => setIsPasswordVisible((current) => !current)} disabled={isSubmitting}>{isPasswordVisible ? <EyeOff aria-hidden="true" size={18} /> : <Eye aria-hidden="true" size={18} />}</IconButton></div></div>
           )}
 
           {(view === 'sign-up' || view === 'reset-password') && (
-            <div className="field"><label htmlFor="auth-password-confirmation">Повторите пароль</label><div className="password-field"><input id="auth-password-confirmation" type={isPasswordVisible ? 'text' : 'password'} value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} autoComplete="new-password" disabled={isSubmitting} /><button className="button button--secondary button--small" type="button" aria-pressed={isPasswordVisible} onClick={() => setIsPasswordVisible((current) => !current)} disabled={isSubmitting}>{isPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}</button></div></div>
+            <div className="field"><label htmlFor="auth-password-confirmation">Повторите пароль</label><div className="password-field"><input id="auth-password-confirmation" type={isPasswordVisible ? 'text' : 'password'} value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} autoComplete="new-password" disabled={isSubmitting} /><IconButton type="button" label={isPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'} aria-pressed={isPasswordVisible} onClick={() => setIsPasswordVisible((current) => !current)} disabled={isSubmitting}>{isPasswordVisible ? <EyeOff aria-hidden="true" size={18} /> : <Eye aria-hidden="true" size={18} />}</IconButton></div></div>
           )}
 
           {error !== null && <p className="form-message form-message--error" role="alert">{error}</p>}

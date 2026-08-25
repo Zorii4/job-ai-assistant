@@ -63,19 +63,8 @@ export async function processHRPreparationJob(
          WHERE run.id = $3
            AND run."applicationCaseId" = saved_artifact."applicationCaseId"
          RETURNING run."applicationCaseId"
-       ), completed_case AS (
-         UPDATE application_case AS application
-         SET status = 'HR_PREPARATION_READY', "currentStage" = 'HR_PREPARATION_READY',
-             "updatedAt" = CURRENT_TIMESTAMP
-         FROM completed_run
-         WHERE application.id = completed_run."applicationCaseId"
-         RETURNING application.id
        )
-       INSERT INTO stage_event (id, "applicationCaseId", "fromStage", "toStage", source, "createdAt")
-       SELECT concat('system-', completed_case.id::text, '-hr-preparation-ready'), completed_case.id,
-              'HR_INVITED', 'HR_PREPARATION_READY', 'SYSTEM', CURRENT_TIMESTAMP
-       FROM completed_case
-       ON CONFLICT DO NOTHING`,
+       SELECT "applicationCaseId" FROM completed_run`,
       [
         job.applicationCaseId,
         generatedContent,
@@ -116,7 +105,6 @@ async function claimHRPreparationRun(
        AND run."workflowType" = 'HR_PREPARATION'
        AND run.status = 'QUEUED'
        AND application.id = run."applicationCaseId"
-       AND application.status = 'HR_INVITED'
        AND EXISTS (
          SELECT 1 FROM analysis_run AS initial_run
          WHERE initial_run."applicationCaseId" = application.id

@@ -114,7 +114,8 @@ export async function processInitialAnalysisJob(
   }
 
   try {
-    const artifacts = extractInitialArtifacts(result.finalMarkdown);
+    const finalMarkdown = removeUngroundedCandidateIdentity(result.finalMarkdown);
+    const artifacts = extractInitialArtifacts(finalMarkdown);
 
     if (artifacts !== null) {
       for (const artifact of artifacts) {
@@ -128,25 +129,12 @@ export async function processInitialAnalysisJob(
     }
 
     await dependencies.database.query(
-      `WITH completed_run AS (
-         UPDATE analysis_run
-         SET status = 'SUCCEEDED', "currentStage" = NULL, "finalMarkdown" = $1,
-             "errorCode" = NULL, "errorMessageSanitized" = NULL,
-             "finishedAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
-         WHERE id = $2
-         RETURNING "applicationCaseId"
-       ), completed_case AS (
-         UPDATE application_case AS application
-         SET status = 'ANALYSIS_READY', "currentStage" = 'ANALYSIS_READY', "updatedAt" = CURRENT_TIMESTAMP
-         FROM completed_run
-         WHERE application.id = completed_run."applicationCaseId"
-         RETURNING application.id
-       )
-       INSERT INTO stage_event (id, "applicationCaseId", "fromStage", "toStage", source, "createdAt")
-       SELECT concat('system-', id, '-analysis-ready'), id, 'ANALYZING', 'ANALYSIS_READY', 'SYSTEM', CURRENT_TIMESTAMP
-       FROM completed_case
-       ON CONFLICT DO NOTHING`,
-      [result.finalMarkdown, job.analysisRunId],
+      `UPDATE analysis_run
+       SET status = 'SUCCEEDED', "currentStage" = NULL, "finalMarkdown" = $1,
+           "errorCode" = NULL, "errorMessageSanitized" = NULL,
+           "finishedAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [finalMarkdown, job.analysisRunId],
     );
   } catch {
     // A persistence error after a completed workflow may be retried by PgBoss.
@@ -181,6 +169,36 @@ export function extractInitialArtifacts(finalMarkdown: string): InitialArtifact[
   ];
 }
 
+export function removeUngroundedCandidateIdentity(finalMarkdown: string): string {
+  const normalized = finalMarkdown.replace(/\r\n/g, '\n');
+  const heading = '#### Сообщение рекрутеру\n';
+  const start = normalized.indexOf(heading);
+
+  if (start === -1) {
+    return normalized;
+  }
+
+  const bodyStart = start + heading.length;
+  const remainder = normalized.slice(bodyStart);
+  const nextHeading = remainder.search(/^#### /m);
+  const message = (nextHeading === -1 ? remainder : remainder.slice(0, nextHeading));
+  const suffix = nextHeading === -1 ? '' : remainder.slice(nextHeading);
+
+  return `${normalized.slice(0, bodyStart)}${removeCandidateIdentity(message)}${suffix}`;
+}
+
+function removeCandidateIdentity(message: string): string {
+  const candidateName = "[\\p{Lu}][\\p{L}'’\\-]+(?:\\s+[\\p{Lu}][\\p{L}'’\\-]+){0,2}";
+  const leadingWhitespace = message.match(/^\s*/u)?.[0] ?? '';
+  const trailingWhitespace = message.match(/\s*$/u)?.[0] ?? '';
+  const withoutIntroduction = message.trim()
+    .replace(new RegExp(`Меня\\s+зовут\\s+${candidateName}\\s*[.!?]\\s*`, 'giu'), '')
+    .replace(new RegExp(`(^|[.!?]\\s*)Я\\s*,\\s*${candidateName}\\s*[,—-]\\s*`, 'giu'), '$1Я ')
+    .replace(new RegExp(`\\n\\s*(?:С\\s+уважением|С\\s+наилучшими\\s+пожеланиями)[,!.]?\\s*\\n\\s*${candidateName}\\s*$`, 'iu'), '');
+
+  return `${leadingWhitespace}${withoutIntroduction.trim()}${trailingWhitespace}`;
+}
+
 function getMarkdownSection(markdown: string, heading: string, nextHeadingLevel: '###' | '####' | undefined): string | null {
   const start = markdown.indexOf(`${heading}\n`);
 
@@ -209,7 +227,6 @@ async function claimRun(
        AND run."applicationCaseId" = $2
        AND run.status = 'QUEUED'
        AND application.id = run."applicationCaseId"
-       AND application.status = 'ANALYZING'
      RETURNING application."userId" AS "userId",
                application."resumeSanitizedText" AS "resumeSanitizedText",
                application."vacancySanitizedText" AS "vacancySanitizedText",
@@ -245,18 +262,6 @@ async function markRunForRetryOrFailure(
          "updatedAt" = CURRENT_TIMESTAMP
      WHERE id = $1`,
     [job.analysisRunId, terminalErrorCode],
-  );
-  await database.query(
-    `UPDATE application_case
-     SET status = 'FAILED', "currentStage" = 'FAILED', "updatedAt" = CURRENT_TIMESTAMP
-     WHERE id = $1`,
-    [job.applicationCaseId],
-  );
-  await database.query(
-    `INSERT INTO stage_event (id, "applicationCaseId", "fromStage", "toStage", source, "createdAt")
-     VALUES (concat('system-', $1::text, '-failed'), $1, 'ANALYZING', 'FAILED', 'SYSTEM', CURRENT_TIMESTAMP)
-     ON CONFLICT DO NOTHING`,
-    [job.applicationCaseId],
   );
   await database.query(
     `UPDATE "user" AS account
