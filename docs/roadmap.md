@@ -1,9 +1,10 @@
 # Публичный roadmap
 
 Roadmap показывает направления развития portfolio-проекта, а не обязательства по
-срокам, бюджету или коммерческой стратегии. Фактический реализованный scope на commit
-[`0c43f31`](https://github.com/Zorii4/job-ai-assistant/commit/0c43f31437a71431a8aa286b62e6f78170791a64)
-описан в [спецификации продукта](product-spec.md).
+срокам, бюджету или коммерческой стратегии. Baseline до Stage 12 зафиксирован на commit
+[`0c43f31`](https://github.com/Zorii4/job-ai-assistant/commit/0c43f31437a71431a8aa286b62e6f78170791a64),
+а фактический scope текущей revision описан в
+[спецификации продукта](product-spec.md).
 
 ## Now
 

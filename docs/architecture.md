@@ -2,9 +2,10 @@
 
 ## Статус документа
 
-Это публичное описание current architecture на commit
-[`0c43f31`](https://github.com/Zorii4/job-ai-assistant/commit/0c43f31437a71431a8aa286b62e6f78170791a64)
-и оставшихся target-границ. Target не означает реализованный production deployment.
+Baseline current architecture проверена на commit
+[`0c43f31`](https://github.com/Zorii4/job-ai-assistant/commit/0c43f31437a71431a8aa286b62e6f78170791a64);
+документ также включает portfolio- и quota follow-up текущей Stage 12 revision. Target
+не означает реализованный production deployment.
 
 ![Текущая архитектура Job AI Assistant](images/job-ai-architecture.svg)
 

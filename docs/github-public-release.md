@@ -7,9 +7,10 @@
 
 - visibility — `PUBLIC`;
 - default branch — `master`;
-- anchor commit публичной документации —
+- baseline master commit на момент начала Stage 12 —
   [`0c43f31`](https://github.com/Zorii4/job-ai-assistant/commit/0c43f31437a71431a8aa286b62e6f78170791a64);
-- `Public checks` и `CodeQL` для anchor commit завершены успешно;
+- `Public checks` и `CodeQL` для baseline commit завершены успешно; checks текущей
+  revision оцениваются отдельно в её PR;
 - ruleset `protect-master` активен;
 - GitHub Issues и Discussions выключены;
 - website/demo не указан, потому что публичного deployment нет;

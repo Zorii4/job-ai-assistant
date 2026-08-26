@@ -4,10 +4,11 @@
 вакансии: проверить соответствие опыта, подготовить материалы для отклика, разобрать
 вероятные вопросы HR и осмыслить ответ после скрининга.
 
-> **Статус:** полный portfolio-MVP реализован и проверяется локально на commit
-> [`0c43f31`](https://github.com/Zorii4/job-ai-assistant/commit/0c43f31437a71431a8aa286b62e6f78170791a64).
-> Публичного production deployment нет. AI создаёт черновики; пользователь проверяет,
-> копирует и отправляет их самостоятельно.
+> **Статус:** полный portfolio-MVP реализован. Factual audit Stage 12 начинался с
+> baseline [`0c43f31`](https://github.com/Zorii4/job-ai-assistant/commit/0c43f31437a71431a8aa286b62e6f78170791a64);
+> portfolio-документация и quota follow-up проверены в текущей revision. Публичного
+> production deployment нет. AI создаёт черновики; пользователь проверяет, копирует и
+> отправляет их самостоятельно.
 
 [English overview](#english-overview) · [Архитектура](docs/architecture.md) ·
 [Спецификация](docs/product-spec.md) · [SDD case studies](docs/sdd-process.md)

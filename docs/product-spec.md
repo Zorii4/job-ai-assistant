@@ -2,9 +2,10 @@
 
 ## Статус
 
-Документ описывает реализованный и проверяемый публичный scope на commit
-[`0c43f31`](https://github.com/Zorii4/job-ai-assistant/commit/0c43f31437a71431a8aa286b62e6f78170791a64).
-Job AI Assistant остаётся portfolio-MVP без публичного production deployment.
+Baseline публичного scope проверен на commit
+[`0c43f31`](https://github.com/Zorii4/job-ai-assistant/commit/0c43f31437a71431a8aa286b62e6f78170791a64);
+документ также описывает quota follow-up текущей Stage 12 revision. Job AI Assistant
+остаётся portfolio-MVP без публичного production deployment.
 
 ## Проблема и результат
 
