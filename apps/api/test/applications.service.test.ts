@@ -317,7 +317,7 @@ test('starts one queued initial analysis and enqueues identifiers only', async (
   });
 });
 
-test('requeues the owners failed analysis without creating a second run or charging quota again', async () => {
+test('requeues the owners failed analysis and re-reserves its released quota unit', async () => {
   const runUpdates: unknown[] = [];
   let runCreationAttempted = false;
   let usageReservation: unknown;
@@ -420,7 +420,41 @@ test('requeues the owners failed analysis without creating a second run or charg
     data: { queueJobId: 'queue-job-retry' },
   });
   assert.deepEqual(queuePayload, { applicationCaseId: 'application-1', analysisRunId: 'run-1' });
-  assert.equal(usageReservation, undefined);
+  assert.deepEqual(usageReservation, {
+    where: { id: 'user-1', initialAnalysisUnitsUsed: { lt: 10 } },
+    data: { initialAnalysisUnitsUsed: { increment: 1 } },
+  });
+});
+
+test('keeps a failed analysis unchanged when its released quota unit is no longer available', async () => {
+  let runUpdateAttempted = false;
+  let queueAttempted = false;
+  const database = {
+    async $transaction(callback: (transaction: unknown) => Promise<unknown>) { return callback(this); },
+    applicationCase: {
+      async findFirst() { return { id: 'application-1', status: 'IN_PROGRESS' as const }; },
+    },
+    user: {
+      async findUnique() { return { planCode: 'ALPHA' }; },
+      async updateMany() { return { count: 0 }; },
+    },
+    analysisRun: {
+      async findFirst() { return { id: 'run-1', status: 'FAILED' as const, manualRetryCount: 0 }; },
+      async count() { return 0; },
+      async update() { runUpdateAttempted = true; return {}; },
+    },
+  };
+  const service = new ApplicationsService(database as never, {
+    async enqueueInitialAnalysis() { queueAttempted = true; return 'unexpected-job'; },
+  } as never);
+
+  await assert.rejects(
+    service.launchInitialAnalysisForUser('user-1', 'application-1'),
+    (error: unknown) => error instanceof AnalysisQuotaExceededException,
+  );
+
+  assert.equal(runUpdateAttempted, false);
+  assert.equal(queueAttempted, false);
 });
 
 test('rejects a new initial analysis after a successful run', async () => {
@@ -614,6 +648,60 @@ test('releases a reserved unit when the analysis queue is unavailable', async ()
     data: { initialAnalysisUnitsUsed: { decrement: 1 } },
   });
   assert.equal(failedStageEvent, undefined);
+});
+
+test('rolls back a manual retry reservation when the analysis queue is unavailable', async () => {
+  let usageCount = 9;
+  const runStatuses: string[] = [];
+  const database = {
+    async $transaction(callbackOrOperations: unknown) {
+      if (typeof callbackOrOperations === 'function') return callbackOrOperations(this);
+      return Promise.all(callbackOrOperations as Promise<unknown>[]);
+    },
+    applicationCase: {
+      async findFirst() { return { id: 'application-1', status: 'IN_PROGRESS' as const }; },
+    },
+    user: {
+      async findUnique() { return { planCode: 'ALPHA' }; },
+      async updateMany() {
+        if (usageCount >= 10) return { count: 0 };
+        usageCount += 1;
+        return { count: 1 };
+      },
+      async update(arguments_: unknown) {
+        assert.deepEqual(arguments_, {
+          where: { id: 'user-1' },
+          data: { initialAnalysisUnitsUsed: { decrement: 1 } },
+        });
+        usageCount -= 1;
+        return {};
+      },
+    },
+    analysisRun: {
+      async findFirst() { return { id: 'run-1', status: 'FAILED' as const, manualRetryCount: 0 }; },
+      async count() { return 0; },
+      async update(arguments_: unknown) {
+        const status = (arguments_ as { data: { status?: string } }).data.status;
+        if (status !== undefined) runStatuses.push(status);
+        if (status === 'QUEUED') {
+          return {
+            id: 'run-1', applicationCaseId: 'application-1', workflowType: 'INITIAL_ANALYSIS' as const,
+            status: 'QUEUED' as const, currentStage: null, errorCode: null, manualRetryCount: 1,
+            createdAt, updatedAt: createdAt,
+          };
+        }
+        return {};
+      },
+    },
+  };
+  const service = new ApplicationsService(database as never, {
+    async enqueueInitialAnalysis() { throw new Error('queue unavailable'); },
+  } as never);
+
+  await assert.rejects(service.launchInitialAnalysisForUser('user-1', 'application-1'));
+
+  assert.equal(usageCount, 9);
+  assert.deepEqual(runStatuses, ['QUEUED', 'FAILED']);
 });
 
 test('starts one queued HR preparation after a successful initial analysis and enqueues identifiers', async () => {

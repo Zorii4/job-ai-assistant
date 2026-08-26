@@ -2,224 +2,195 @@
 
 ## Статус документа
 
-Это публичное описание текущей архитектуры и подтверждённых целевых границ.
-Схемы с пометкой **Target** не означают, что компонент уже реализован.
+Baseline current architecture проверена на commit
+[`0c43f31`](https://github.com/Zorii4/job-ai-assistant/commit/0c43f31437a71431a8aa286b62e6f78170791a64);
+документ также включает portfolio- и quota follow-up текущей Stage 12 revision. Target
+не означает реализованный production deployment.
 
-## Current
+![Текущая архитектура Job AI Assistant](images/job-ai-architecture.svg)
 
-```text
-React + Vite web
-        |
-        | HTTP, same-origin в Docker Compose
-        v
-NestJS API ----> PostgreSQL / Prisma
-        |
-        +--> Better Auth server sessions
-        |
-        +--> PgBoss <---- worker
-
-Legacy adapters (CLI, Telegram)
-        |
-        v
-Application use case
-        |
-        v
-Initial AI workflow
-        |
-        +--> file-based run persistence
-        +--> LLM adapter or deterministic mock mode
-```
-
-### Web и API
-
-- `apps/web` — React + Vite frontend. Текущая UI-реализация покрывает библиотеку
-  резюме, preview обезличенной версии, создание вакансии и polling initial-analysis run.
-  Библиотека, создание вакансии и результат анализа доступны по отдельным URL, поэтому
-  их можно открыть напрямую и безопасно повторно загрузить в браузере.
-- `apps/api` — NestJS API. В нём реализованы healthcheck, server-side session
-  guard, endpoints библиотеки резюме и создание файлового черновика вакансии.
-- `packages/contracts` — shared Zod runtime contracts для public API.
-- `prisma` — PostgreSQL schema и миграции.
-- `apps/worker` — отдельный PgBoss consumer. Он получает только IDs, загружает
-  snapshots из PostgreSQL и выполняет initial workflow, HR-preparation и отдельный
-  post-interview workflow без HTTP-сервера.
-- `compose.yaml` — локальный стек web, API, worker и PostgreSQL за одним origin.
-
-### Initial AI core и legacy adapters
-
-Initial workflow остаётся отдельным от HTTP и Telegram:
-
-```text
-Analyst
-  -> Producer
-  -> Critic
-  -> Producer revision при необходимости
-  -> Critic
-  -> Orchestrator
-```
-
-Если после последней разрешённой версии Producer Critic всё ещё возвращает
-`NEEDS_REVISION`, workflow не выбрасывает готовый черновик: Orchestrator собирает
-последнюю версию материалов. Технический run завершается успешно, а terminal decision
-Critic сохраняется отдельно; evaluation различает такой `REJECTED` результат и
-технический `FAILED`.
-
-`src/app` содержит use case и порт persistence. `src/ai` координирует workflow,
-а agent-модули не знают о NestJS, Prisma, HTTP или Telegram. CLI и Telegram в
-`src/cli` и `src/telegram` используют legacy adapter-путь к тому же application
-use case.
-
-Текущий persistence adapter сохраняет run-результаты на диск. Он не заменён
-database persistence и остаётся рабочим legacy-механизмом до отдельной миграции.
-
-HR-подготовка — отдельный одношаговый use case, не расширение Producer. После
-успешного initial analysis worker использует только сохранённые snapshots обезличенного резюме и
-вакансии, а также `finalMarkdown` успешного initial run. Он делает один structured
-LLM-вызов без Critic и revision, валидирует 5–10 пар «вопрос — ответ» runtime-схемой
-и сохраняет отдельный read-only Artifact. Карточка приглашённой вакансии запускает
-этот workflow, показывает его статус и открывает готовый материал на существующей
-странице результата.
-
-Post-interview разбор также остаётся отдельным одношаговым use case. Пользователь
-вручную вводит сообщение HR до 8 000 символов; сервер удаляет финальную подпись и
-прямые идентификаторы до persistence, не сохраняя raw-текст. Worker получает только
-это обезличенное сообщение, snapshot вакансии и `finalMarkdown` успешного initial run,
-выполняет один structured LLM-вызов без Critic и revision и атомарно создаёт
-`POST_INTERVIEW_REVIEW` и `HR_CLOSING_MESSAGE`. Failed run допускает один ручной retry;
-LLM не меняет этап вакансии.
-
-### Prompt boundary
-
-Production prompt texts находятся в private overlay и не импортируются tracked
-agent-модулями напрямую. При запуске workflow получает один typed prompt bundle:
-
-- mock mode использует безопасный детерминированный bundle для воспроизводимых
-  тестов;
-- real mode загружает private overlay и завершается configuration error до
-  обращения к LLM, если overlay недоступен;
-- structured contracts Analyst и Critic отправляются как strict JSON Schema только
-  на явно настроенный совместимый маршрут; после ответа они всё равно проходят
-  runtime-валидацию Zod, а обрезанный ответ не считается корректным;
-- Analyst использует primary-модель из `LLM_MODEL`, одну recovery-попытку при
-  невалидном structured response и настроенный `LLM_ANALYST_FALLBACK_MODEL` при
-  timeout, network error или окончательно невалидном ответе primary-маршрута;
-- Critic использует отдельный профиль: `deepseek-v4-flash` с 180-секундным budget и
-  `gpt-oss-20b` как один технический fallback при timeout или output limit; оба маршрута
-  проверены на его strict JSON Schema и не публикуют частичный пакет;
-- модель возвращает атомарные findings Critic, а сервер детерминированно выводит из их
-  severity поля `decision` и `reviewStatus`; это исключает противоречивый итог при
-  сохранении runtime-валидации всех findings;
-- Analyst и Producer используют 120-секундный лимит шага. Producer сохраняет не более
-  одной автоматической технической повторной попытки, а Analyst после технического
-  сбоя primary переключается на отдельную совместимую fallback-модель; общий timeout
-  workflow остаётся верхней границей.
-- prompt text не передаётся frontend и не включается в диагностические ошибки.
-
-## Текущие данные и доверительные границы
+## Current: модульный монолит
 
 ```text
 Browser
-  -> authenticated API request
-  -> ownership check by server session
-  -> PostgreSQL record scoped by userId
+  → React + Vite web
+  → NestJS API
+      ↔ PostgreSQL / Prisma
+      → PgBoss job with IDs only
+          → worker
+              → application use case
+              → isolated AI workflow
+              → LLM adapter or deterministic mock
+              → PostgreSQL result/checkpoint/artifacts
 
-Resume file
-  -> validation and text extraction
-  -> временный source text + editable sanitized version
-  -> user confirmation required before future LLM use
-  -> source text and source file name are cleared
+Legacy CLI / Telegram adapters
+  → the same application and initial AI boundaries
+  → file persistence adapter
 ```
 
-Текущие resume API contracts не возвращают исходный текст. Загрузка допускает PDF,
-MD и TXT с проверкой размера, MIME и расширения; input buffer очищается после
-извлечения. После подтверждения обезличенной версии исходный текст и имя файла
-очищаются из рабочей записи; существующие backup-копии удаляются по сроку ротации.
-Проверки владения выполняются на сервере, а не через скрытые элементы интерфейса.
+### Компоненты
 
-Техническое обезличивание снижает распространение прямых идентификаторов, но не
-является юридической гарантией анонимизации.
+- `apps/web` — маршруты `Резюме`, `Анализ`, `История`, `Аккаунт` и страница результата.
+  UI восстанавливается после reload, опрашивает run status и безопасно отображает
+  read-only Markdown без raw HTML.
+- `apps/api` — auth/session guard, owner-scoped Resume/ApplicationCase/Run/Artifact API,
+  file validation, lifecycle, capacity, quota и постановка jobs.
+- `apps/worker` — отдельные PgBoss consumers для initial analysis, HR preparation и
+  post-interview. HTTP-сервер внутри worker отсутствует.
+- `packages/contracts` — shared Zod contracts для public API и job payloads.
+- `prisma` — PostgreSQL schema, constraints и воспроизводимые migrations.
+- `src/app` и `src/ai` — application boundary, initial workflow и специализированные
+  AI-use cases, не зависящие от NestJS, Prisma, web или Telegram.
+- `src/cli` и `src/telegram` — сохранённые legacy adapters. Telegram не развивается как
+  часть текущего MVP.
 
-## Target
+## Потоки данных
 
-Целевая архитектура остаётся модульным монолитом в одном TypeScript repository:
+### Резюме
 
 ```text
-apps/
-  web
-  api
-  worker
-  telegram            # target adapter boundary
-
-packages/
-  contracts
-  domain              # target when domain boundary needs it
-  application         # target when shared use cases move from legacy src/
-  ai                  # target when AI core moves from legacy src/
+PDF / MD / TXT
+  → size + MIME + extension validation
+  → local text extraction
+  → temporary source text + editable sanitized Markdown
+  → explicit user review and confirmation
+  → source text and source file name cleared
+  → confirmed sanitized snapshot may be used by AI
 ```
 
-Дальнейший vertical slice для вакансии должен использовать асинхронный lifecycle:
+Public Resume contracts не возвращают source text. Upload buffer очищается после
+извлечения, а имя пользовательского файла не используется как filesystem path.
+
+### Initial analysis
 
 ```text
-API validates input, ownership and quota
-  -> creates ApplicationCase and Run
-  -> enqueues identifiers only
-  -> worker loads data and executes workflow
-  -> persists progress and result
-  -> web polls or receives server-sent events
+API transaction
+  → validates session, ownership, confirmed resume, vacancy file and capacity
+  → creates ApplicationCase with immutable resume/vacancy snapshots
+  → creates or reuses one INITIAL_ANALYSIS run
+  → atomically reserves one ALPHA unit
+  → enqueues { applicationCaseId, analysisRunId }
+
+Worker
+  → atomically claims QUEUED run
+  → loads snapshots from PostgreSQL
+  → validates prompt/model fingerprint and existing checkpoints
+  → Analyst → Producer → Critic → optional revision → Critic → Orchestrator
+  → persists progress, checkpoints, finalMarkdown and idempotent Artifacts
 ```
 
-`ApplicationCase` частично реализован: API создаёт черновик из файла
-PDF/MD/TXT после проверки владения подтверждённым резюме и сохраняет snapshot его
-`sanitizedText`. `AnalysisRun` уже имеет отдельную персистентную модель со
-статусами lifecycle. После server-side проверки владения API создаёт один
-initial-analysis run и ставит в PgBoss только ID вакансии и run. Один worker-процесс
-обрабатывает не более двух initial-analysis jobs одновременно. Worker atomically
-claim'ит run, загружает snapshots из PostgreSQL, сохраняет этапы и finalMarkdown,
-а при retry или ошибке записывает только технический code без raw error. Для terminal
-LLM-сбоев code различает этап и безопасную категорию (`TIMEOUT`, `NETWORK_ERROR` или
-`RESPONSE_INVALID`). Защищённый
-polling endpoint возвращает владельцу статусы, этапы и технический code. Отдельный
-endpoint результата отдаёт `finalMarkdown` только после успешного run и только его
-владельцу. Web делает polling и безопасно отображает read-only Markdown-блоки без HTML
-инъекций, сохраняя полный текст отчёта при незнакомой разметке. При известных разделах
-worker создаёт idempotent Artifacts; API отдаёт их только владельцу вакансии. Исторические
-поля пользовательских редакций пока сохраняются в схеме для совместимости, но UI не создаёт
-новых редакций и не использует PATCH/reset endpoints. Перед запуском
-initial analysis API атомарно резервирует одну из десяти lifetime-единиц ALPHA и возвращает её
-при технической ошибке очереди или окончательной ошибке worker.
-После успешных Analyst, Producer и Critic worker сохраняет валидированные checkpoint'ы
-шагов и итоговый Markdown до terminal persistence. Поэтому технический retry продолжает
-с первого незавершённого шага, не повторяя уже завершённые LLM-вызовы. Checkpoint привязан
-к snapshot-входам и fingerprint текущих prompt/model-настроек; при несовпадении он
-очищается, и ручный retry честно начинает цепочку с Analyst. Повторная доставка очереди
-и рестарт единственного worker безопасно возвращают прерванный run в `QUEUED`; atomic
-claim и idempotent Artifact inserts не допускают второго workflow или дубликатов
-материалов. Сбой без checkpoint завершает конкретный run безопасным `FAILED`.
-Владелец может вручную повторно поставить failed initial analysis через тот же защищённый
-API: существующий `AnalysisRun` возвращается в `QUEUED`, поэтому не создаются второй run и
-дубликаты результата. Возвращённая при предыдущем техническом сбое единица квоты
-резервируется снова и расходуется только при успешном завершении.
-После успешного initial analysis отдельный защищённый endpoint создаёт один HR-preparation run для
-той же вакансии; очередь получает IDs, а worker atomically claim'ит run только при
-успешном initial analysis. HR worker получает snapshots и `finalMarkdown` из БД,
-делает один LLM-вызов и сохраняет idempotent Artifact. Ошибка LLM завершает только HR run безопасным code и не
-повторяет initial workflow; доставка повторяется лишь для persistence-ошибки.
-Эти компоненты не должны обходить границы privacy, ownership или initial workflow.
+Один пользователь может иметь не более двух active initial runs (`QUEUED` или
+`RUNNING`). Ошибка постановки или terminal worker failure возвращает зарезервированную
+единицу. Повторная доставка job не запускает второй workflow и не создаёт дубликаты
+материалов.
+
+Manual retry переиспользует failed run, но перед переходом в `QUEUED` атомарно
+резервирует ранее возвращённую unit. Если пользователь уже занял освободившуюся unit и
+достиг lifetime limit, retry отклоняется, а run остаётся `FAILED`. Queue failure и новый
+terminal failure освобождают именно reservation текущей попытки; regressions покрывают
+quota boundary, queue rollback и единственный worker release.
+
+Успешные шаги сохраняются как runtime-валидированные checkpoints. При restart или
+manual retry worker продолжает первый незавершённый шаг. Checkpoint используется только
+при совпадении snapshots и fingerprint prompt/model configuration; иначе он очищается,
+и flow честно начинается с Analyst.
+
+### HR preparation
+
+```text
+confirmed resume snapshot + vacancy snapshot + successful finalMarkdown
+  → one HR Preparation Generator call
+  → runtime validation
+  → idempotent HR_SCREENING_PREPARATION Artifact
+```
+
+Это отдельный workflow без Critic, revision и повторного initial analysis. API создаёт
+один run на вакансию, очередь получает IDs, а technical failure не меняет пользовательский
+status вакансии.
+
+### Post-interview
+
+```text
+raw HR message
+  → length validation and direct-identifier/signature removal
+  → sanitized message persisted; raw text discarded
+  → ID-only job
+  → sanitized HR message + vacancy snapshot + successful finalMarkdown
+  → one Post-interview Generator call
+  → atomic POST_INTERVIEW_REVIEW + HR_CLOSING_MESSAGE Artifacts
+```
+
+Полный resume snapshot и HR preparation material в этот вызов не передаются. LLM не
+назначает `REJECTED` или `OFFER`; outcome остаётся ручным решением пользователя.
+
+## AI boundary
+
+Initial, HR preparation и post-interview имеют отдельные typed prompt bundles и
+runtime-контракты:
+
+- public mock mode использует безопасные детерминированные bundles;
+- real mode загружает ignored private overlay и завершается configuration error до
+  LLM-вызова, если overlay отсутствует или malformed;
+- production prompt text не импортируется tracked agent-модулями напрямую, не
+  передаётся frontend и не включается в диагностические ошибки;
+- structured responses проходят strict JSON Schema у совместимого route и повторную
+  Zod-валидацию после ответа;
+- Critic возвращает findings и `claimAudit`, а итоговые `decision` и `reviewStatus`
+  вычисляются сервером из severity, чтобы terminal state не противоречил findings.
+
+## Persistence и идемпотентность
+
+- `AnalysisRun` уникален по паре `applicationCaseId + workflowType`.
+- `Artifact` уникален по `applicationCaseId + type`.
+- Atomic claim отделяет `QUEUED` от `RUNNING` и не допускает параллельный duplicate run.
+- Очередь хранит identifiers; пользовательские тексты загружаются только worker-ом.
+- Для каждого failed workflow разрешено не более трёх server-enforced manual retry.
+- Retry initial workflow использует совместимый checkpoint; одношаговые workflows
+  повторяют только свой вызов и не расходуют новую product unit.
+- `generatedContent` и legacy-поля пользовательской редакции остаются раздельными.
+  Текущий web UI новые редакции не создаёт и показывает результат read-only.
+
+## Ownership и trust boundaries
+
+```text
+Browser request
+  → server-side session
+  → runtime validation
+  → query scoped by userId or equivalent relation
+  → owned record only
+```
+
+Скрытый UI control не считается авторизацией. Public API не возвращает provider tokens,
+auth internals или source resume text. Tests покрывают невозможность прочитать, изменить,
+запустить workflow или удалить сущность другого пользователя.
+
+## Target: инфраструктура закрытой альфы
+
+Следующая архитектурная граница относится к эксплуатации, а не к новому product flow:
+
+- российская VPS и TLS reverse proxy;
+- production secret storage и безопасная доставка private prompts только worker-у;
+- отдельный зашифрованный backup PostgreSQL с проверенным restore;
+- monitoring диска, health и обезличенных ошибок;
+- документально проверенный LLM-route и privacy/legal review;
+- production-проверка cookie `Secure`/SameSite, CSRF и rate limits на фактическом
+  deployment.
+
+Возможный перенос общих use cases из legacy `src/` в `packages/application` и
+`packages/ai` остаётся target-рефакторингом. Пустые пакеты заранее не создаются.
 
 ## Архитектурные инварианты
 
-- Один пользовательский запрос не получает доступ к сущности другого пользователя.
-- Source resume text не должен попадать в LLM; initial workflow использует только
-  подтверждённую обезличенную версию или её snapshot.
-- Очередь worker получает identifiers, а не полные пользовательские тексты.
-- `generatedContent` и пользовательская редакция будущих материалов хранятся
-  раздельно.
+- Один пользователь не получает доступ к сущности другого пользователя.
+- Source resume text не попадает в LLM.
+- Job payload не содержит полные пользовательские тексты.
+- AI создаёт материалы, но не выполняет внешние действия.
 - Initial workflow сохраняет порядок агентов и ограниченное число revision.
-- Public code не включает production prompts, реальные evaluation-данные или
-  credentials.
+- Специализированные workflows не расширяют Producer неявно.
+- Public code не включает production prompts, credentials или evaluation corpus.
 
 ## Как поддерживать документ
 
-При изменении реализованной архитектуры, trust boundary, persistence, API или
-статуса target-компонента этот документ обновляется в той же задаче. Новая
-архитектурная диаграмма не должна показывать target как current.
+Документ обновляется в той же задаче при изменении current components, data flow,
+ownership, persistence, retry/quota semantics или target deployment boundary. Все
+утверждения о реализации должны проверяться кодом и тестами выбранного anchor commit.

@@ -1,54 +1,75 @@
-# GitHub-настройки для публичного портфолио
+# GitHub-настройки публичного portfolio-репозитория
 
-Этот документ фиксирует целевую конфигурацию GitHub для репозитория. Она применяется
-владельцем перед сменой visibility; сама смена visibility требует отдельного явного
-подтверждения.
+## Текущий статус
 
-## Репозиторий
+Проверено 26 августа 2026 года для
+[`Zorii4/job-ai-assistant`](https://github.com/Zorii4/job-ai-assistant):
 
-- Description: `Портфолио-проект: privacy-aware AI workflow для анализа соответствия резюме и вакансии на React, NestJS и TypeScript.`
-- Topics: `typescript`, `react`, `vite`, `nestjs`, `prisma`, `postgresql`, `ai-workflow`, `portfolio`.
-- Default branch: `master`.
-- Website/demo: не указывать, пока нет отдельной публичной демо-среды.
-- Social preview: использовать только asset с подтверждёнными правами; до этого оставить
-  стандартный preview.
+- visibility — `PUBLIC`;
+- default branch — `master`;
+- baseline master commit на момент начала Stage 12 —
+  [`0c43f31`](https://github.com/Zorii4/job-ai-assistant/commit/0c43f31437a71431a8aa286b62e6f78170791a64);
+- `Public checks` и `CodeQL` для baseline commit завершены успешно; checks текущей
+  revision оцениваются отдельно в её PR;
+- ruleset `protect-master` активен;
+- GitHub Issues и Discussions выключены;
+- website/demo не указан, потому что публичного deployment нет;
+- проект остаётся source-visible, external contributions не принимаются.
 
-## Защита ветки и CI
+Repository description:
 
-Для `master` включить ruleset, запрещающий force push и удаление ветки. Не требовать
-pull request или обязательный review: они не нужны персональному source-visible
-репозиторию без процесса внешних contributions. GitHub Free не применяет rulesets к
-private personal repository: не повышать тариф и не добавлять фиктивные required
-checks. После public visibility проверить enforcement, добавить
-`Public checks / verify`, а `CodeQL / Analyze JavaScript and TypeScript` — после
-первого успешного сканирования в public repository.
+> Проект: privacy-aware AI workflow для анализа соответствия резюме и вакансии на
+> React, NestJS и TypeScript.
 
-Workflow-файлы не получают production secrets и используют только mock mode. Обычный
-pull request не должен выполнять реальный LLM-вызов. Для Actions оставить default
-`GITHUB_TOKEN` read-only; workflow получает дополнительные права только там, где это
-нужно для загрузки CodeQL results.
+## Branch protection и CI
 
-## Security и автоматизация
+Ruleset для `master` запрещает удаление и non-fast-forward updates. Изменения должны
+пройти public checks и CodeQL согласно фактической GitHub-конфигурации.
 
-- Включить Dependabot alerts, dependency graph и monthly Dependabot version updates.
-- Включить secret scanning и push protection после public visibility.
-- До смены visibility принимать security reports через `SECURITY.md`; GitHub private
-  vulnerability reporting включить сразу после смены visibility, потому что GitHub
-  предоставляет эту функцию public repositories.
-- Workflow CodeQL для JavaScript/TypeScript запускает сканирование только после public
-  visibility: private repository на текущем плане не поддерживает code scanning.
-- Запретить доступ forked pull requests к secrets и запретить workflows, которым нужны
-  write permissions, запускаться с их кода.
-- Задать хранение Actions logs/artifacts на 60 дней; текущие workflows artifacts не
-  создают.
+Workflows:
 
-## Issues, discussions и releases
+- используют детерминированный mock mode и не вызывают реальную платную LLM;
+- не получают production prompts или пользовательские данные;
+- используют least-privilege `GITHUB_TOKEN`;
+- не дают forked code доступ к repository secrets;
+- не создают deployment, release или package как побочный эффект обычного PR.
 
-В соответствии с текущей source-visible моделью внешние contributions не принимаются.
-Оставить GitHub Issues и Discussions выключенными: репозиторий не является площадкой
-для публичной поддержки или совместной разработки. Сообщения о потенциальных
-уязвимостях принимаются только через канал из `SECURITY.md`.
+Состояние CI оценивается для конкретного commit и branch. Сбой отдельной Dependabot- или
+feature-ветки не выдаётся за сбой `master`, но требует обычного review до merge.
 
-Не создавать Releases, packages или deployment на первом этапе. Эти сущности нельзя
-отключить отдельной настройкой GitHub; отсутствие проверяется перед публикацией и при
-финальном audit. Теги и Releases возможны только после отдельного решения владельца.
+## Security controls
+
+- Dependency graph и Dependabot включены.
+- Secret scanning и push protection включены для public repository.
+- CodeQL анализирует JavaScript/TypeScript.
+- GitHub private vulnerability reporting используется для безопасного сообщения об
+  уязвимости.
+- Открытые dependency/security alerts рассматриваются отдельной ограниченной задачей;
+  публичный документ не обещает постоянное отсутствие alerts.
+- Workflow logs и artifacts не должны содержать production secrets, prompts или
+  пользовательские тексты.
+
+Канал responsible disclosure и действия при утечке описаны в
+[SECURITY.md](../SECURITY.md).
+
+## Portfolio и community boundary
+
+- README не называет проект open source и содержит source-visible notice.
+- Отдельный `LICENSE`, `CONTRIBUTING.md`, DCO и CLA не добавляются без нового решения
+  владельца.
+- Issues, Discussions и Wiki не используются как public support/community process.
+- Releases, packages, GitHub Pages и public deployment не создаются на текущем этапе.
+- Social preview добавляется только из asset с подтверждёнными правами и privacy review.
+
+## Постоянные проверки
+
+Перед публичным merge:
+
+1. Просмотреть scope и diff.
+2. Запустить релевантные tests/build и `npm run check:public-safety`.
+3. Проверить новые fixtures, screenshots и docs на PII, private prompts и права.
+4. Убедиться, что public status и file classification остаются актуальными.
+5. Проверить CI и security/dependency alerts, относящиеся к изменению.
+
+Перед изменением visibility, license model, community-функций, Releases, packages или
+deployment требуется отдельное решение владельца и новый go/no-go review.

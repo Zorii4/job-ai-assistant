@@ -60,6 +60,7 @@
     { "pattern": "docs/design-system.md", "classification": "PUBLIC" },
     { "pattern": "docs/github-public-release.md", "classification": "PUBLIC" },
     { "pattern": "docs/roadmap.md", "classification": "PUBLIC" },
+    { "pattern": "docs/images/**", "classification": "PUBLIC" },
     { "pattern": "Dockerfile", "classification": "PUBLIC" },
     { "pattern": "README.md", "classification": "PUBLIC_AFTER_REVIEW" },
     { "pattern": "compose.yaml", "classification": "PUBLIC" },

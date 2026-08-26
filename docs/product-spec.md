@@ -2,69 +2,113 @@
 
 ## Статус
 
-Job AI Assistant — portfolio-проект, развивающийся из Telegram-бота в web-
-приложение для работы кандидата с конкретной вакансией. Документ описывает только
-реализованный и проверяемый публичный scope; он не является обещанием сроков или
-полного MVP.
+Baseline публичного scope проверен на commit
+[`0c43f31`](https://github.com/Zorii4/job-ai-assistant/commit/0c43f31437a71431a8aa286b62e6f78170791a64);
+документ также описывает quota follow-up текущей Stage 12 revision. Job AI Assistant
+остаётся portfolio-MVP без публичного production deployment.
 
-## Проблема и ценность
+## Проблема и результат
 
-Отклик на вакансию обычно требует сопоставить требования с опытом кандидата,
-выбрать акценты в резюме и подготовить несколько материалов для ручного общения с
-работодателем. Продукт создаёт и организует такие черновики, но не отправляет
-отклики, письма или сообщения от имени пользователя.
+Работа с вакансией требует сопоставить требования с опытом, выбрать акценты и
+подготовить несколько материалов для общения с работодателем. Продукт организует этот
+процесс вокруг одной вакансии пользователя и создаёт проверяемые черновики, но не
+отправляет отклики, письма или сообщения от его имени.
 
-Главная продуктовая единица в целевой модели — одна вакансия пользователя и
-связанные с ней материалы. Этот сценарий ещё не реализован в web-версии.
+Одна продуктовая единица объединяет:
 
-## Реализованный scope
+- один initial analysis;
+- одну HR-подготовку после приглашения;
+- один post-interview разбор;
+- сохранённые read-only материалы и историю вакансии.
 
-| Возможность | Статус | Что доступно сейчас |
+## Реализованный пользовательский путь
+
+1. Пользователь регистрируется по одноразовому инвайту, подтверждает email и получает
+   server-side session в httpOnly cookie.
+2. Загружает резюме в PDF, MD или TXT, редактирует автоматически подготовленную
+   обезличенную Markdown-версию и подтверждает её для AI.
+3. Загружает вакансию, выбирает подтверждённое резюме и запускает асинхронный analysis.
+4. Видит активный процесс после навигации или reload, а после завершения открывает
+   сохранённый read-only Markdown-отчёт и выделенные материалы.
+5. Управляет вакансией в истории со статусами `IN_PROGRESS`, `REJECTED` или `OFFER`;
+   technical status AI-run хранится и показывается отдельно.
+6. После приглашения запускает отдельную HR-подготовку из 5–10 пар «вопрос — ответ».
+7. После скрининга вставляет сообщение HR длиной до 8 000 символов и получает краткий
+   разбор с отдельным закрывающим сообщением для ручной отправки.
+
+## Реализованные возможности
+
+| Область | Текущее поведение | Проверяемая опора |
 | --- | --- | --- |
-| Базовая web/API-платформа | implemented | React + Vite frontend, NestJS API, healthcheck, shared runtime contracts, Prisma schema и Docker Compose. |
-| Авторизация и доступ | implemented | Регистрация по одноразовому инвайту, подтверждение email, вход, восстановление доступа, logout и web-экраны используют server-side sessions в httpOnly cookie. |
-| Библиотека резюме | implemented | Создание черновика загрузкой PDF/MD/TXT, список, preview, редактирование обезличенной версии, подтверждение и удаление. |
-| Защита резюме | implemented | Проверки размера, MIME и расширения, извлечение текста, удаление исходного upload buffer, ограничение до пяти резюме и проверки владения данными. |
-| Черновик вакансии | partial | Защищённый API создаёт `ApplicationCase` загрузкой PDF/MD/TXT только с подтверждённым резюме и сохраняет snapshot его обезличенной версии. Web позволяет выбрать подтверждённое резюме, создать вакансию и запустить один `AnalysisRun`; status run обновляется polling. Очередь получает только ID вакансии и run. Отдельный worker загружает snapshots из БД, выполняет initial workflow и сохраняет безопасные статусы/прогресс; владелец может прочитать и безопасно отобразить `finalMarkdown` только после успешного run. После технического сбоя worker повторяет первый незавершённый шаг из валидированного checkpoint, не повторяя успешные LLM-вызовы; при смене prompt/model-конфигурации checkpoint сбрасывается и ручный retry начинается с Analyst. Полный отчёт и выделенные материалы доступны как read-only Markdown: пользователь вручную выделяет, копирует, проверяет и отправляет нужные фрагменты вне сервиса. Рядом показано предупреждение о ручной проверке и ручной отправке. Для ALPHA доступно 10 lifetime-анализов; технические ошибки очереди и worker единицу возвращают, а повтор успешного анализа не создаёт дополнительного списания сверх одной продуктовой единицы. |
-| Initial AI workflow | implemented as legacy core | Сохранён отдельный flow Analyst → Producer → Critic → возможная revision → Orchestrator; если после лимита revision остаётся `NEEDS_REVISION`, Orchestrator публикует последнюю версию материалов как черновик, сохраняя terminal decision Critic отдельно от технического статуса run. Для публичной разработки доступен детерминированный mock mode. |
-| HR-подготовка | partial | После успешного initial analysis пользователь запускает один отдельный HR run со страницы результата; очередь получает только идентификаторы. Worker использует сохранённые snapshots обезличенного резюме и вакансии, а также `finalMarkdown` успешного initial analysis; исходный текст резюме не загружается. Один LLM-вызов валидируется runtime-схемой и сохраняет read-only материал из 5–10 пар «вопрос — ответ». Технический статус run отображается отдельно от пользовательского состояния вакансии. |
-| Post-interview разбор | partial | После HR-скрининга пользователь вставляет сообщение HR длиной до 8 000 символов. Сервер удаляет финальную подпись и прямые идентификаторы до сохранения; raw-текст не сохраняется. Один отдельный run получает только обезличенное сообщение, snapshot вакансии и `finalMarkdown` initial analysis, создаёт два read-only материала и не меняет этап по выводу LLM. После технической ошибки доступен один ручной повтор. |
-| Private prompt boundary | implemented | Рабочие prompts не входят в tracked-код. Без private overlay real mode останавливается до LLM-вызова; mock mode не выдаётся за результат реального AI. |
+| Web/API-платформа | React + Vite, NestJS, PostgreSQL/Prisma, PgBoss worker и Docker Compose работают как один modular monolith. | [architecture](architecture.md), [workspace packages](../package.json) |
+| Auth и ownership | Invite-only registration, email verification, login, recovery и logout используют server-side sessions. User-owned queries ограничиваются владельцем на сервере. | [auth tests](../apps/api/test/auth.e2e.test.ts), [application tests](../apps/api/test/applications.service.test.ts) |
+| Библиотека резюме | File-only intake для PDF/MD/TXT, максимум пять резюме, Markdown-preserving extraction, редактирование и подтверждение обезличенной версии, read-only просмотр и удаление. | [resume service tests](../apps/api/test/resumes.service.test.ts), [sanitizer tests](../apps/api/test/resume-sanitizer.test.ts) |
+| Вакансии и история | До десяти вакансий; отдельно показаны active analysis и общая история. Активный run удалить нельзя, terminal vacancy удаляется только явно с подтверждением. | [application service](../apps/api/src/applications/applications.service.ts), [history UI tests](../apps/web/test/application-case-list.test.ts) |
+| Initial analysis | `Analyst → Producer → Critic → revision при необходимости → Critic → Orchestrator`; worker сохраняет progress, checkpoints, terminal decision и read-only result. | [workflow](../src/ai/runInitialAnalysisWorkflow.ts), [worker tests](../apps/worker/test/initial-analysis.worker.test.ts) |
+| HR preparation | Отдельный одношаговый structured workflow по сохранённым snapshots и успешному initial result; не повторяет initial analysis. | [worker](../apps/worker/src/hr-preparation.worker.ts), [tests](../apps/worker/test/hr-preparation.worker.test.ts) |
+| Post-interview | Отдельный одношаговый workflow атомарно создаёт `POST_INTERVIEW_REVIEW` и `HR_CLOSING_MESSAGE`; LLM не меняет outcome вакансии. | [worker](../apps/worker/src/post-interview.worker.ts), [tests](../apps/worker/test/post-interview.worker.test.ts) |
+| Usage и recovery | ALPHA получает десять lifetime product units. Одновременно допускаются два active initial run. Failed initial attempt освобождает reservation; manual retry переиспользует run и атомарно резервирует unit заново. При уже исчерпанном лимите run остаётся `FAILED`. Каждый workflow имеет не более трёх ручных retry. | [usage policy](../apps/api/src/usage/usage-policy.ts), [application tests](../apps/api/test/applications.service.test.ts) |
+| Private prompt boundary | Production prompts отсутствуют в tracked-коде; real mode без private overlay завершается до LLM-вызова, mock mode остаётся детерминированным. | [prompt bundle](../src/ai/initialWorkflowPromptBundle.ts), [boundary tests](../test/prompt-bundle-boundary.test.ts) |
 
-## Planned scope
+## AI-workflows и контракты
 
-- web-интерфейс результата;
-- безопасный read-only Markdown-результат и история вакансии;
-- квоты и пользовательское отображение idempotent jobs;
+Initial analysis сохраняет legacy-семантику и единый `finalMarkdown`. Critic возвращает
+ограниченный structured `claimAudit`, а приложение детерминированно выводит итоговые
+`decision` и `reviewStatus` из severity валидированных findings. Если последняя
+разрешённая версия остаётся `NEEDS_REVISION`, Orchestrator публикует её как черновик,
+сохраняя terminal decision Critic отдельно от технического статуса run.
+
+HR preparation и post-interview используют собственные prompt bundles, runtime-схемы,
+jobs и persistence. Общим может быть технический runner, но входы, контракты и
+ответственность workflows не смешиваются.
+
+Успешные initial steps сохраняются как валидированные checkpoints. Retry продолжает
+первый незавершённый шаг только при совпадении snapshot и prompt/model fingerprint;
+несовместимый checkpoint очищается, чтобы один результат не смешивал разные
+конфигурации.
 
 ## Приватность и безопасность
 
-- Исходный текст резюме не должен передаваться в LLM: перед использованием
-  подтверждается отдельная обезличенная версия.
-- API не возвращает исходный текст резюме в public resume contracts.
-- Доступ к резюме проверяется по владельцу; один пользователь не может читать,
-  менять, подтверждать или удалить резюме другого пользователя.
-- Загруженный исходный файл обрабатывается в памяти и очищается после извлечения
-  текста.
-- Production prompts, evaluation-материалы, реальные пользовательские данные,
-  secrets и внутренние планы остаются вне публичного набора файлов.
+- Source resume text не возвращается public API и не передаётся в LLM.
+- После подтверждения обезличенной версии рабочая запись очищается от исходного текста
+  и имени файла; production backup и сроки ротации пока остаются launch gate.
+- Job payloads содержат IDs, а не resume, vacancy или HR message text.
+- Post-interview input обезличивается до persistence; raw HR message не сохраняется.
+- Пользовательские тексты, prompt text, raw LLM responses, cookies и credentials не
+  предназначены для логирования.
+- Markdown отображается без исполнения raw HTML.
+- Техническая псевдонимизация снижает риск, но не является юридической гарантией
+  анонимизации.
 
-Техническое обезличивание снижает риск, но не заявляется как юридически
-гарантированная анонимизация.
+Подробнее: [privacy и security](privacy-and-security.md), [SECURITY.md](../SECURITY.md).
 
-## Проверяемые критерии текущего scope
+## Проверяемые критерии
 
-- runtime contracts валидируют public API responses;
-- тесты проверяют успешные и ошибочные сценарии работы с резюме, лимит и ownership;
-- mock tests initial workflow проверяют порядок агентов и ограничение revision;
-- HR mock и worker tests проверяют один структурированный вызов по сохранённым snapshots, безопасные ошибки и отсутствие исходного текста в LLM-входе;
-- public-safety check блокирует private, secret, generated и не
-  классифицированные tracked-файлы.
+- public runtime contracts отклоняют лишние и невалидные поля;
+- ownership tests запрещают чтение и изменение чужих Resume, ApplicationCase, Run и
+  Artifact;
+- queue contract tests отклоняют payloads с полными пользовательскими текстами;
+- worker tests покрывают success, duplicate delivery, restart, retry, terminal failure,
+  quota release и отсутствие duplicate Artifact;
+- frontend tests покрывают routing, empty/loading/error/success, progressive HR-flow,
+  retry limits, безопасный Markdown и responsive controls;
+- `npm run check:public-safety` блокирует private, secret, generated и
+  неклассифицированные tracked-файлы.
 
 ## Не-цели текущей версии
 
 - автоматическая отправка материалов работодателю;
-- свободный AI-чат;
+- свободный AI-чат и неограниченная перегенерация;
+- URL-import вакансии;
+- интерактивное или техническое интервью;
+- платежи, подписки и командные аккаунты;
 - публичный production deployment;
-- обещание трудоустройства или безошибочности AI-материалов;
-- публикация production prompts или реальных контрольных примеров.
+- публикация production prompts или evaluation corpus;
+- обещание трудоустройства либо безошибочности AI-материалов.
+
+## Следующая граница
+
+Следующий продуктовый этап — инфраструктура закрытой альфы: deployment-конфигурация,
+секреты, резервное копирование и проверка восстановления, мониторинг, договорная
+проверка LLM-route и privacy/legal review. Всё это не считается реализованным текущим
+локальным Docker Compose.

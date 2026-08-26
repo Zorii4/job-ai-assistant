@@ -208,7 +208,11 @@ test('marks a workflow failure terminally without storing raw errors or requeuin
   assert.equal(queries.some((query) => query.values[0] === 'run-1' && query.values[1] === 'ANALYST_RESPONSE_INVALID'), true);
   assert.equal(queries.some((query) => query.text.includes('UPDATE application_case') && query.text.includes("SET status = 'FAILED'")), false);
   assert.equal(queries.some((query) => query.text.includes('INSERT INTO stage_event') && query.values[0] === 'application-1'), false);
-  assert.equal(queries.some((query) => query.text.includes('initialAnalysisUnitsUsed') && query.values[0] === 'application-1'), true);
+  const quotaReleases = queries.filter(
+    (query) => query.text.includes('initialAnalysisUnitsUsed') && query.values[0] === 'application-1',
+  );
+  assert.equal(quotaReleases.length, 1);
+  assert.match(quotaReleases[0]?.text ?? '', /GREATEST\(account\."initialAnalysisUnitsUsed" - 1, 0\)/);
 });
 
 test('requeues a timed out Analyst while preserving the checkpoint and quota', async () => {
