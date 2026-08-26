@@ -186,24 +186,6 @@ export class ApplicationsService {
         throw new AnalysisCapacityExceededException();
       }
 
-      if (failedRun !== null) {
-        return transaction.analysisRun.update({
-          where: { id: failedRun.id },
-          data: {
-            status: 'QUEUED',
-            currentStage: null,
-            errorCode: null,
-            errorMessageSanitized: null,
-            queueJobId: null,
-            startedAt: null,
-            finishedAt: null,
-            editedFinalMarkdown: null,
-            manualRetryCount: { increment: 1 },
-          },
-          select: analysisRunSummarySelect,
-        });
-      }
-
       const user = await transaction.user.findUnique({
         where: { id: userId },
         select: { planCode: true },
@@ -223,6 +205,24 @@ export class ApplicationsService {
 
       if (reservation.count !== 1) {
         throw new AnalysisQuotaExceededException();
+      }
+
+      if (failedRun !== null) {
+        return transaction.analysisRun.update({
+          where: { id: failedRun.id },
+          data: {
+            status: 'QUEUED',
+            currentStage: null,
+            errorCode: null,
+            errorMessageSanitized: null,
+            queueJobId: null,
+            startedAt: null,
+            finishedAt: null,
+            editedFinalMarkdown: null,
+            manualRetryCount: { increment: 1 },
+          },
+          select: analysisRunSummarySelect,
+        });
       }
 
       return transaction.analysisRun.create({
